@@ -1,148 +1,33 @@
 ifeq ($(OHOS_ARCH),aarch64)
-PKGS=gettext \
-	bash \
-	binutils \
+PKGS=\
 	busybox \
-	coremark \
-	lz4 \
-	make \
+	bash \
 	ncurses \
-	talloc \
-	openssl \
-	zstd \
-	pcre2 \
+	readline \
 	zlib \
-	libarchive \
-	proot \
-	strace \
-	tar \
-	tree \
-	vim \
-	xxhash \
-	libunistring \
-	libidn2 \
+	lz4 \
+	openssl \
 	c-ares \
 	curl \
-	yyjson \
-	fastfetch \
-	sl \
-	openssh \
-	ncnn \
-	readline \
-	htop \
-	vkpeak \
-	kbd \
-	stream \
-	libevent \
-	tmux \
-	fish \
-	elf-loader \
-	gmp \
-	mpfr \
-	mpc \
-	gcc \
-	expat \
-	git \
-	aria2 \
+	tar \
 	xz \
-	gdb \
-	python \
 	libusb \
-	hdc \
-	libffi \
-	glib \
-	qemu \
-	qemu-vroot \
-	libx264 \
-	libx265 \
-	libvpx \
-	libsvt-av1 \
-	libmp3-lame \
-	libfdk-aac \
-	libopus \
-	libogg \
-	libvorbis \
-	vulkan-headers \
-	volk \
-	vulkan-tools \
-	shaderc \
-	ffmpeg \
-	util-linux \
-	nano \
-	less \
-	p7zip
+	hdc
 else ifeq ($(OHOS_ARCH),x86_64)
-PKGS=gettext \
-	bash \
-	binutils \
+PKGS=\
 	busybox \
-	coremark \
-	lz4 \
-	make \
+	bash \
 	ncurses \
-	talloc \
-	openssl \
-	zstd \
-	pcre2 \
+	readline \
 	zlib \
-	libarchive \
-	proot \
-	strace \
-	tar \
-	tree \
-	vim \
-	xxhash \
-	libunistring \
-	libidn2 \
+	lz4 \
+	openssl \
 	c-ares \
 	curl \
-	yyjson \
-	fastfetch \
-	sl \
-	openssh \
-	ncnn \
-	readline \
-	htop \
-	vkpeak \
-	kbd \
-	libevent \
-	tmux \
-	fish \
-	elf-loader \
-	gmp \
-	mpfr \
-	mpc \
-	gcc \
-	expat \
-	git \
-	aria2 \
+	tar \
 	xz \
-	gdb \
-	python \
 	libusb \
-	hdc \
-	libffi \
-	glib \
-	qemu \
-	qemu-vroot \
-	libx264 \
-	libx265 \
-	libvpx \
-	libsvt-av1 \
-	libmp3-lame \
-	libfdk-aac \
-	libopus \
-	libogg \
-	libvorbis \
-	vulkan-headers \
-	volk \
-	vulkan-tools \
-	shaderc \
-	ffmpeg \
-	util-linux \
-	nano \
-	less \
-	p7zip
+	hdc
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
@@ -152,12 +37,12 @@ STAMP=$(patsubst %,%/.stamp,$(PKGS))
 
 all: copy
 
-copy: base.hnp
+copy: horpkg-base.hnp
 	rm -f ../entry/hnp/$(OHOS_ABI)/*.hnp
 	cp $^ ../entry/hnp/$(OHOS_ABI)
-	cp $^ ../entry/hnp/$(OHOS_ABI)/base-public.hnp
+	cp $^ ../entry/hnp/$(OHOS_ABI)/horpkg-public.hnp
 
-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile
+horpkg-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile
 	# reduce size
 	rm -rfv sysroot/share/man
 	rm -rfv sysroot/share/doc
@@ -178,8 +63,8 @@ base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile
 	# create hnp manually
 	# $(OHOS_SDK_HOME)/toolchains/hnpcli pack -i sysroot -n base -v 1.0
 	cp hnp.json sysroot
-	rm -f base.hnp
-	zip -r base.hnp sysroot
+	rm -f horpkg-base.hnp
+	zip -r horpkg-base.hnp sysroot
 
 %/.stamp: %/Makefile
 	make -C $(patsubst %/.stamp,%,$@)

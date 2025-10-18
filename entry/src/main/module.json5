@@ -81,11 +81,11 @@
     ],
     "hnpPackages": [
       {
-        "package": "base.hnp",
+        "package": "horpkg-base.hnp",
         "type": "private"
       },
       {
-        "package": "base-public.hnp",
+        "package": "horpkg-public.hnp",
         "type": "public"
       }
     ]

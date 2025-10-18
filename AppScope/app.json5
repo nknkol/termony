@@ -1,7 +1,7 @@
 {
   "app": {
-    "bundleName": "je.jia.termony",
-    "vendor": "example",
+    "bundleName": "org.horpkg.app",
+    "vendor": "horpkg",
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:layered_image",

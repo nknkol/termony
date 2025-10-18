@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "Termony"
+      "value": "Horpkg - HarmonyOS Package Manager"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Termony"
+      "value": "Horpkg Package Manager"
     },
     {
       "name": "EntryAbility_label",
-      "value": "Termony"
+      "value": "Horpkg"
     },
     {
       "name": "download_permission",

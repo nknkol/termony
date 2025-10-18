@@ -1,6 +1,6 @@
 {
 	"type":	"hnp-config",
-	"name":	"base",
+	"name":	"horpkg-base",
 	"version":	"1.0",
 	"install":	{
 	}
