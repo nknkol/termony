@@ -1,5 +1,5 @@
 ifeq ($(OHOS_ARCH),aarch64)
-PKGS=\
+PKGS=horpkg \
 	busybox \
 	bash \
 	ncurses \
@@ -14,7 +14,7 @@ PKGS=\
 	libusb \
 	hdc
 else ifeq ($(OHOS_ARCH),x86_64)
-PKGS=\
+PKGS=horpkg \
 	busybox \
 	bash \
 	ncurses \
