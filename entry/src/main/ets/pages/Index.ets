@@ -3,6 +3,7 @@ import { util } from '@kit.ArkTS';
 import { pasteboard, BusinessError } from '@kit.BasicServicesKit';
 import { inputMethod } from '@kit.IMEKit';
 import { abilityAccessCtrl } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import promptAction from '@ohos.promptAction';
 import testNapi from 'libentry.so';
 
@@ -129,10 +130,12 @@ struct Index {
             hilog.info(0x0000, 'mainTag', 'Failed to set pasteboard: %{public}s', JSON.stringify(err));
             return;
           } else {
-            promptAction.showToast({
+            // 修复1: 使用 UIContext 的 getPromptAction 方法
+            let uiContext = this.getUIContext();
+            let prompt = uiContext.getPromptAction();
+            prompt.showToast({
               message: "Copied to pasteboard",
               duration: 1000,
-              bottom: "center",
             })
           }
         });
@@ -141,7 +144,9 @@ struct Index {
       if (testNapi.checkPaste()) {
         // need to paste
         const atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
-        atManager.requestPermissionsFromUser(getContext(), ['ohos.permission.READ_PASTEBOARD']).then(async () => {
+        // 修复2: 使用最新API获取 ApplicationContext
+        let abilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        atManager.requestPermissionsFromUser(abilityContext.getApplicationContext(), ['ohos.permission.READ_PASTEBOARD']).then(async () => {
           let systemPasteboard: pasteboard.SystemPasteboard = pasteboard.getSystemPasteboard();
           let data = await systemPasteboard.getData();
           hilog.info(DOMAIN, 'testTag', 'Got pasteboard data: %{public}s', JSON.stringify(data));
@@ -156,10 +161,12 @@ struct Index {
             testNapi.pushPaste(encoded);
           }
 
-          promptAction.showToast({
+          // 修复1: 使用 UIContext 的 getPromptAction 方法
+          let uiContext = this.getUIContext();
+          let prompt = uiContext.getPromptAction();
+          prompt.showToast({
             message: "Pasted from pasteboard",
             duration: 1000,
-            bottom: "center",
           })
         });
       }
@@ -180,7 +187,9 @@ struct Index {
       MenuItem({ content: "Paste" })
         .onClick(async () => {
           const atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
-          await atManager.requestPermissionsFromUser(getContext(), ['ohos.permission.READ_PASTEBOARD']);
+          // 修复2: 使用最新API获取 ApplicationContext
+          let abilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+          await atManager.requestPermissionsFromUser(abilityContext.getApplicationContext(), ['ohos.permission.READ_PASTEBOARD']);
           let systemPasteboard: pasteboard.SystemPasteboard = pasteboard.getSystemPasteboard();
           let data = await systemPasteboard.getData();
           hilog.info(DOMAIN, 'testTag', 'Got pasteboard data: %{public}s', JSON.stringify(data));
@@ -214,8 +223,9 @@ struct Index {
         if (touch.type === TouchType.Down) {
           this.touchState.set(touch.id, touch.y);
         } else if (touch.type === TouchType.Move) {
-          // we use pixels, convert from vp to px
-          let offset = vp2px(this.touchState.get(touch.id) as number - touch.y);
+          // 修复3: 使用 UIContext 的 vp2px 方法
+          let uiContext = this.getUIContext();
+          let offset = uiContext.vp2px(this.touchState.get(touch.id) as number - touch.y);
           this.touchState.set(touch.id, touch.y);
           // hilog.info(DOMAIN, 'testTag', 'Got touch offset: %{public}d', offset);
           testNapi.scroll(offset);
