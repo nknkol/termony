@@ -1,35 +1,35 @@
 ifeq ($(OHOS_ARCH),aarch64)
-PKGS=yyjson \
-	horpkg \
-	busybox \
-	bash \
-	ncurses \
-	readline \
-	zlib \
-	lz4 \
-	openssl \
-	c-ares \
-	curl \
-	tar \
-	xz \
-	libusb \
-	hdc
+PKGS=zlib \
+    openssl \
+    ncurses \
+    libusb \
+    lz4 \
+    xz \
+    c-ares \
+    yyjson \
+    readline \
+    curl \
+    tar \
+    bash \
+    hdc \
+    horpkg \
+    busybox
 else ifeq ($(OHOS_ARCH),x86_64)
-PKGS=yyjson \
-	horpkg \
-	busybox \
-	bash \
-	ncurses \
-	readline \
-	zlib \
-	lz4 \
-	openssl \
-	c-ares \
-	curl \
-	tar \
-	xz \
-	libusb \
-	hdc
+PKGS=zlib \
+    openssl \
+    ncurses \
+    libusb \
+    lz4 \
+    xz \
+    c-ares \
+    yyjson \
+    readline \
+    curl \
+    tar \
+    bash \
+    hdc \
+    horpkg \
+    busybox
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
@@ -50,6 +50,7 @@ horpkg-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile hnp.
 	rm -rfv sysroot/share/doc
 	rm -rfv sysroot/share/info
 	# add pasteboard utilities
+	mkdir -p sysroot/bin
 	cp utils/pbcopy sysroot/bin
 	cp utils/pbpaste sysroot/bin
 	# let gcc work out of box

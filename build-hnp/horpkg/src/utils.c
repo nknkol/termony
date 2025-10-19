@@ -1,5 +1,10 @@
 #include "utils.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <unistd.h>
 
 void print_success(const char *msg) {
     printf("%s✓%s %s\n", COLOR_GREEN, COLOR_RESET, msg);

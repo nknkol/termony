@@ -35,9 +35,13 @@ int download_file(const char *url, const char *outfile) {
     CURL *curl;
     FILE *fp;
     CURLcode res;
-
+    char errbuf[CURL_ERROR_SIZE];
     curl = curl_easy_init();
+
     if (curl) {
+        errbuf[0] = 0;
+        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
+
         fp = fopen(outfile, "wb");
         if (fp == NULL) {
             curl_easy_cleanup(curl);
@@ -45,24 +49,35 @@ int download_file(const char *url, const char *outfile) {
         }
 
         curl_easy_setopt(curl, CURLOPT_URL, url);
+        const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-
         res = curl_easy_perform(curl);
-        printf("\n");
+        printf("\n"); // 确保进度条之后换行
 
+        // 关闭文件
         fclose(fp);
 
+        // 检查结果
         if (res != CURLE_OK) {
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            if (strlen(errbuf)) {
+                fprintf(stderr, "[ERROR] CURL error details: %s\n", errbuf);
+            }
+            curl_easy_cleanup(curl);
             return -1;
         }
 
         curl_easy_cleanup(curl);
+
+    } else {
+        fprintf(stderr, "[ERROR] FAILED: curl_easy_init() returned NULL.\n");
+        return -1;
     }
     return 0;
 }

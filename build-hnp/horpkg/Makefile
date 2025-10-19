@@ -3,6 +3,8 @@ include ../utils/Makefrag
 all:
 	rm -rf temp build
 	mkdir -p build$(PREFIX)/bin
+	mkdir -p build$(PREFIX)/etc
+	cp -fv src/cacert.pem build$(PREFIX)/etc/
 	# 编译 horpkg
 	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
 		-o build$(PREFIX)/bin/horpkg \

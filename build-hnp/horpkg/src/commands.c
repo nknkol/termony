@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include "commands.h"
 #include "utils.h"
 #include <stdio.h>
@@ -68,20 +69,6 @@ int cmd_init(int argc, char *argv[]) {
     return 0;
 }
 
-char* get_config_path(const char* filename) {
-    const char *home_dir = getenv("HOME");
-    if (!home_dir) {
-        print_error("HOME environment variable not set.");
-        return NULL;
-    }
-    // 分配足够的空间
-    char* path = malloc(strlen(home_dir) + strlen("/.horpkg/") + strlen(filename) + 1);
-    if (path) {
-        sprintf(path, "%s/.horpkg/%s", home_dir, filename);
-    }
-    return path;
-}
-
 int cmd_install(int argc, char *argv[]) {
     if (argc < 1) {
         print_error("Package name required");
@@ -117,30 +104,43 @@ int cmd_install(int argc, char *argv[]) {
     // 2. 解析镜像URL
     yyjson_val *mirrors_root = yyjson_doc_get_root(mirror_doc);
     yyjson_val *mirrors_arr = yyjson_obj_get(mirrors_root, "mirrors");
-    // (简化处理，直接使用第一个镜像)
     yyjson_val *first_mirror = yyjson_arr_get_first(mirrors_arr);
     const char *mirror_url = yyjson_get_str(yyjson_obj_get(first_mirror, "url"));
     print_success("Using mirror:");
     printf("    %s\n\n", mirror_url);
     
-    // 3. 下载包元数据
+    // --- ↓↓↓↓↓↓ 核心修改区域 (开始) ↓↓↓↓↓↓ ---
+
+    // 3. 准备应用专属的下载目录
+    char *tmp_dir = get_config_path("tmp");
+    if (!tmp_dir) { yyjson_doc_free(mirror_doc); return 1; }
+    create_dir_if_not_exists(tmp_dir);
+
+    char *cache_dir = get_config_path("cache");
+    if (!cache_dir) { free(tmp_dir); yyjson_doc_free(mirror_doc); return 1; }
+    create_dir_if_not_exists(cache_dir);
+
+    // 4. 下载包元数据 (到 ~/.horpkg/tmp/)
     char package_json_url[512];
     char package_json_temp_path[256];
     snprintf(package_json_url, sizeof(package_json_url), "%s/packages/%s.json", mirror_url, package_name);
-    snprintf(package_json_temp_path, sizeof(package_json_temp_path), "/tmp/%s.json", package_name);
-    
+    snprintf(package_json_temp_path, sizeof(package_json_temp_path), "%s/%s.json", tmp_dir, package_name);
+    free(tmp_dir); // 释放内存
+
     print_info("Fetching package metadata...");
     if (download_file(package_json_url, package_json_temp_path) != 0) {
         print_error("Failed to download package metadata.");
+        free(cache_dir);
         yyjson_doc_free(mirror_doc);
         return 1;
     }
 
-    // 4. 解析包元数据获取下载地址
+    // 5. 解析包元数据获取下载地址
     yyjson_doc *pkg_doc = yyjson_read_file(package_json_temp_path, flg, NULL, NULL);
-    unlink(package_json_temp_path); // 删除临时文件
+    unlink(package_json_temp_path); // 删除临时元数据文件
     if (!pkg_doc) {
         print_error("Failed to parse package metadata.");
+        free(cache_dir);
         yyjson_doc_free(mirror_doc);
         return 1;
     }
@@ -152,10 +152,14 @@ int cmd_install(int argc, char *argv[]) {
     const char *hnp_url = yyjson_get_str(yyjson_obj_get(hnp_info, "url"));
     const char *hnp_sha256 = yyjson_get_str(yyjson_obj_get(hnp_info, "sha256"));
     
+    // 6. 确定最终下载路径 (到 ~/.horpkg/cache/)
     char out_filename[256];
-    snprintf(out_filename, sizeof(out_filename), "%s.hnp", package_name);
+    snprintf(out_filename, sizeof(out_filename), "%s/%s.hnp", cache_dir, package_name);
+    free(cache_dir); // 释放内存
+
+    // --- ↑↑↑↑↑↑ 核心修改区域 (结束) ↑↑↑↑↑↑ ---
     
-    // 5. 执行下载
+    // 7. 执行下载
     print_info("Downloading package...");
     if (download_file(hnp_url, out_filename) != 0) {
         print_error("Download failed.");
@@ -165,7 +169,7 @@ int cmd_install(int argc, char *argv[]) {
     }
     print_success("Download complete.");
 
-    // 6. 后续步骤
+    // 8. 后续步骤
     print_info("Verifying SHA256...");
     // TODO: 实现SHA256校验逻辑
     print_success("Checksum verified");
