@@ -42,7 +42,7 @@ copy: horpkg-base.hnp
 	cp $^ ../entry/hnp/$(OHOS_ABI)
 	cp $^ ../entry/hnp/$(OHOS_ABI)/horpkg-public.hnp
 
-horpkg-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile
+horpkg-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile hnp.json
 	# reduce size
 	rm -rfv sysroot/share/man
 	rm -rfv sysroot/share/doc
