@@ -1,0 +1,87 @@
+{
+  "name": "tree",
+  "version": "2.1.1",
+  "description": "Recursive directory listing command that produces a depth-indented listing of files",
+  "homepage": "https://mama.indstate.edu/users/ice/tree/",
+  "category": "utilities",
+  "license": "GPL-2.0",
+  
+  "maintainer": {
+    "name": "Horpkg Repository Team",
+    "email": "repo@horpkg.org",
+    "github": "horpkg-repo"
+  },
+  
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/horpkg-repo/tree",
+    "branch": "main"
+  },
+  
+  "architectures": ["arm64-v8a", "x86_64"],
+  
+  "sources": {
+    "arm64-v8a": {
+      "recipe": {
+        "url": "https://raw.githubusercontent.com/horpkg-repo/tree/main/tree.recipe",
+        "sha256": "RECIPE_SHA256_HERE"
+      },
+      "upstream": {
+        "type": "tarball",
+        "url": "https://mama.indstate.edu/users/ice/tree/src/tree-2.1.1.tgz",
+        "sha256": "6957c20e82561ac4231638996e74f4cfa4e6faabc5a2f511f0b4e3940e8f7b12",
+        "size": 57813
+      }
+    },
+    "x86_64": {
+      "recipe": {
+        "url": "https://raw.githubusercontent.com/horpkg-repo/tree/main/tree.recipe",
+        "sha256": "RECIPE_SHA256_HERE"
+      },
+      "upstream": {
+        "type": "tarball",
+        "url": "https://mama.indstate.edu/users/ice/tree/src/tree-2.1.1.tgz",
+        "sha256": "6957c20e82561ac4231638996e74f4cfa4e6faabc5a2f511f0b4e3940e8f7b12",
+        "size": 57813
+      }
+    }
+  },
+  
+  "binaries": {
+    "arm64-v8a": {
+      "public_hnp": {
+        "url": "https://github.com/horpkg-repo/tree/releases/download/v2.1.1/tree-2.1.1-arm64.hnp",
+        "sha256": "HNP_SHA256_HERE",
+        "size": 102400
+      }
+    },
+    "x86_64": {
+      "public_hnp": {
+        "url": "https://github.com/horpkg-repo/tree/releases/download/v2.1.1/tree-2.1.1-x86_64.hnp",
+        "sha256": "HNP_SHA256_HERE",
+        "size": 102400
+      }
+    }
+  },
+  
+  "dependencies": {
+    "runtime": ["horpkg-base >= 1.0.0"],
+    "build": ["gcc", "make"]
+  },
+  
+  "mode": "binary-only",
+  
+  "install": {
+    "hnp_type": "public",
+    "commands": ["tree"],
+    "man_pages": ["tree.1"]
+  },
+  
+  "metadata": {
+    "created_at": "2025-01-20T10:00:00Z",
+    "updated_at": "2025-01-20T12:00:00Z",
+    "downloads": 0,
+    "stars": 0,
+    "tags": ["cli", "filesystem", "utility"]
+  }
+}

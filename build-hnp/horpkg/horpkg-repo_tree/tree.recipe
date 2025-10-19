@@ -1,0 +1,74 @@
+# Tree Package Recipe for Horpkg
+
+[package]
+name = "tree"
+version = "2.1.1"
+description = "Recursive directory listing command"
+category = "utilities"
+license = "GPL-2.0"
+homepage = "https://mama.indstate.edu/users/ice/tree/"
+mode = "binary-only"
+
+[maintainer]
+name = "Horpkg Repository Team"
+email = "repo@horpkg.org"
+
+[dependencies]
+runtime = ["horpkg-base >= 1.0.0"]
+build = ["gcc", "make"]
+
+[source]
+type = "tarball"
+url = "https://mama.indstate.edu/users/ice/tree/src/tree-2.1.1.tgz"
+sha256 = "6957c20e82561ac4231638996e74f4cfa4e6faabc5a2f511f0b4e3940e8f7b12"
+size = 57813
+
+[build]
+# Build script
+script = """
+# Extract
+tar xzf tree-2.1.1.tgz
+cd tree-2.1.1
+
+# Apply HarmonyOS patches if needed
+# patch -p1 < ../patches/0001-harmonyos-support.patch
+
+# Build
+make CC=$CC \
+     CFLAGS="$CFLAGS -DLINUX" \
+     LDFLAGS="$LDFLAGS"
+
+# Install
+make install \
+     PREFIX=$PKGDIR/usr \
+     MANDIR=$PKGDIR/usr/share/man
+"""
+
+# Compilation flags
+cflags = "-O2 -Wall"
+ldflags = "-s"
+
+[install]
+# Install type
+hnp_type = "public"
+
+# Files to include
+files = [
+    "usr/bin/tree",
+    "usr/share/man/man1/tree.1"
+]
+
+# Provided commands
+commands = ["tree"]
+
+[metadata]
+# Package tags
+tags = ["cli", "filesystem", "utility", "directory"]
+
+# Examples
+examples = [
+    "tree",
+    "tree -L 2",
+    "tree -d",
+    "tree -C"
+]

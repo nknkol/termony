@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "categories": [
+    {
+      "id": "system",
+      "name": "System",
+      "description": "System libraries and runtime",
+      "icon": "⚙️",
+      "packages": ["horpkg-base"]
+    },
+    {
+      "id": "development",
+      "name": "Development Tools",
+      "description": "Compilers, build tools, and development utilities",
+      "icon": "🔧",
+      "packages": ["gcc", "clang", "make", "cmake", "git"]
+    },
+    {
+      "id": "utilities",
+      "name": "Utilities",
+      "description": "Command-line tools and utilities",
+      "icon": "🛠️",
+      "packages": ["tree", "busybox", "bash", "vim", "tmux", "htop"]
+    },
+    {
+      "id": "languages",
+      "name": "Programming Languages",
+      "description": "Interpreters and language runtimes",
+      "icon": "🐍",
+      "packages": ["python", "node", "ruby", "go", "rust"]
+    },
+    {
+      "id": "emulation",
+      "name": "Emulation & Virtualization",
+      "description": "Virtual machines and emulators",
+      "icon": "💻",
+      "packages": ["qemu-system", "qemu-user", "wine"]
+    }
+  ]
+}

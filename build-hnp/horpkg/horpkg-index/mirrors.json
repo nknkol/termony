@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "mirrors": [
+    {
+      "id": "github",
+      "name": "GitHub (Primary)",
+      "region": "global",
+      "url": "https://raw.githubusercontent.com/horpkg/horpkg-index/main",
+      "type": "git",
+      "priority": 1,
+      "status": "active"
+    },
+    {
+      "id": "jsdelivr",
+      "name": "jsDelivr CDN",
+      "region": "global",
+      "url": "https://cdn.jsdelivr.net/gh/horpkg/horpkg-index@main",
+      "type": "cdn",
+      "priority": 2,
+      "status": "active"
+    },
+    {
+      "id": "china",
+      "name": "China Mirror",
+      "region": "cn",
+      "url": "https://mirror.horpkg.cn",
+      "type": "mirror",
+      "priority": 1,
+      "status": "planned"
+    }
+  ]
+}

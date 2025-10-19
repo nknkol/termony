@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "repository": "https://github.com/horpkg/horpkg-index",
+  "updated_at": "2025-01-20T12:00:00Z",
+  "packages": [
+    {
+      "name": "tree",
+      "version": "2.1.1",
+      "description": "Directory listing in tree-like format",
+      "category": "utilities",
+      "architectures": ["arm64-v8a", "x86_64"]
+    },
+    {
+      "name": "horpkg-base",
+      "version": "1.0.0",
+      "description": "Horpkg runtime base (musl libc + core libraries)",
+      "category": "system",
+      "architectures": ["arm64-v8a", "x86_64"]
+    }
+  ],
+  "total": 2,
+  "mirrors": [
+    "https://mirror.horpkg.cn/index.json",
+    "https://cdn.horpkg.org/index.json"
+  ],
+  "metadata": {
+    "format_version": "1.0",
+    "schema": "https://horpkg.org/schema/index.json"
+  }
+}

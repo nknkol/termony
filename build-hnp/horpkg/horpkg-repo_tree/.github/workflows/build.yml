@@ -1,0 +1,62 @@
+name: Build Tree Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64-v8a, x86_64]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup HarmonyOS SDK
+        run: |
+          # Download and setup HarmonyOS SDK
+          wget https://contentcenter-vali-drcn.dbankcdn.cn/pvt_2/DeveloperAlliance_package_901_9/f4/v3/bJ3zMt6YTqS5JwLpHlKaBA/commandline-tools-linux-5.0.5.300.zip -O sdk.zip
+          unzip -q sdk.zip -d $HOME/
+          echo "OHOS_SDK_HOME=$HOME/command-line-tools/sdk/default/openharmony" >> $GITHUB_ENV
+      
+      - name: Build Package
+        run: |
+          chmod +x build.sh
+          ./build.sh ${{ matrix.arch }}
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tree-${{ matrix.arch }}
+          path: |
+            tree-*.hnp
+            tree-*.hnp.sha256
+  
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            tree-arm64-v8a/tree-*.hnp
+            tree-arm64-v8a/tree-*.hnp.sha256
+            tree-x86_64/tree-*.hnp
+            tree-x86_64/tree-*.hnp.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

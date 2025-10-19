@@ -1,0 +1,39 @@
+name: Validate JSON
+
+on:
+  pull_request:
+    paths:
+      - '**.json'
+  push:
+    branches:
+      - main
+    paths:
+      - '**.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install jsonschema
+    
+    - name: Validate JSON files
+      run: |
+        python scripts/validate_json.py
+    
+    - name: Check formatting
+      run: |
+        for file in $(find . -name "*.json"); do
+          python -m json.tool "$file" > /dev/null || exit 1
+        done
+        echo "All JSON files are valid!"
