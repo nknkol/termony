@@ -20,4 +20,8 @@ void print_error(const char *msg);
 void print_warning(const char *msg);
 void print_info(const char *msg);
 
+// 文件和路径工具
+char* get_config_path(const char* filename);
+int create_dir_if_not_exists(const char *path);
+
 #endif // HORPKG_UTILS_H

@@ -6,7 +6,9 @@ all:
 	# 编译 horpkg
 	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
 		-o build$(PREFIX)/bin/horpkg \
-		src/*.c
-	# 复制到 sysroot（完全照抄 fish 的方式）
+		src/*.c \
+		-I../sysroot/include \
+		-L../sysroot/lib -lcurl -lyyjson
+	# 复制到 sysroot
 	mkdir -p ../sysroot
-	cp -rfv build$(PREFIX)/. ../sysroot | tee file.lst
+	cp -rfv build$(PREFIX)/. ../sysroot | tee file.lst #
