@@ -39,7 +39,7 @@ int ensure_config_exists() {
         fprintf(fp, "      \"id\": \"github\",\n");
         fprintf(fp, "      \"name\": \"GitHub (Primary)\",\n");
         fprintf(fp, "      \"region\": \"global\",\n");
-        fprintf(fp, "      \"url\": \"https://raw.githubusercontent.com/horpkg/horpkg-index/main\",\n");
+        fprintf(fp, "      \"url\": \"https://raw.githubusercontent.com/nknkol/horpkg-index/main\",\n");
         fprintf(fp, "      \"type\": \"git\",\n");
         fprintf(fp, "      \"priority\": 1,\n");
         fprintf(fp, "      \"status\": \"active\"\n");
