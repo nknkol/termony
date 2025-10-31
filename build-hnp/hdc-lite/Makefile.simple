@@ -1,0 +1,96 @@
+LOCAL_CXXFLAGS = -std=c++17 -ggdb -Wall -O2 -fPIC -include sys/un.h
+LOCAL_CFLAGS = -ggdb -Wall -O2 -fPIC
+LOCAL_DEFINES = -DUSE_CONFIG_UV_THREADS \
+                -DSIZE_THREAD_POOL=16 \
+                -DHDC_HOST \
+                -DHOST_LINUX \
+                -DHARMONY_PROJECT \
+                -DTEST_HASH \
+                -DHDC_MSG_HASH=\"TEST\" \
+                -DUV_TIMEOUT=0 \
+                -DUV_REPEAT=3000 \
+                -DHDCLITE \
+                -DOHOS_HDCLITE
+
+LOCAL_DEFINES += -D_GNU_SOURCE -DSECUREC_USING_SECURE_LIB -DSECUREC_FOR_OPEN_HARMONY
+
+LOCAL_INCLUDES = -Ihdc/src/common \
+                 -Ihdc/src/host \
+                 -Isecurec/include \
+                 -Isecurec/src
+
+LOCAL_LIBS = -luv \
+             -lcrypto \
+             -lssl \
+             -lz \
+             -llz4 \
+             -lpthread \
+             -ldl \
+             -lrt
+
+FINAL_CXXFLAGS = $(CXXFLAGS) $(LOCAL_CXXFLAGS) $(LOCAL_DEFINES) $(LOCAL_INCLUDES)
+FINAL_CFLAGS = $(CFLAGS) $(LOCAL_CFLAGS) $(LOCAL_DEFINES) $(LOCAL_INCLUDES)
+FINAL_LDFLAGS = $(LDFLAGS) $(LOCAL_LIBS)
+
+HOST_SRCS = $(wildcard hdc/src/host/*.cpp)
+COMMON_SRCS = $(wildcard hdc/src/common/*.cpp)
+SECUREC_SRCS = $(wildcard securec/src/*.c) # <-- 添加 securec C 文件
+
+BUILD_DIR = ../build
+OBJ_DIR = $(BUILD_DIR)/obj
+TARGET_NAME = hdc-lite
+
+HOST_OBJS = $(patsubst hdc/src/%.cpp,$(OBJ_DIR)/%.o,$(HOST_SRCS))
+COMMON_OBJS = $(patsubst hdc/src/%.cpp,$(OBJ_DIR)/%.o,$(COMMON_SRCS))
+SECUREC_OBJS = $(patsubst securec/src/%.c,$(OBJ_DIR)/securec/%.o,$(SECUREC_SRCS)) # <-- securec object 
+
+ALL_OBJS = $(COMMON_OBJS) $(HOST_OBJS) $(SECUREC_OBJS) # <-- 添加 securec objects
+
+.PHONY: all clean dirs info
+
+all: info dirs $(BUILD_DIR)/$(TARGET_NAME)
+
+info:
+	@echo "========================================="
+	@echo "HDC-Lite Cross-Compile Build (via Makefile.simple)"
+	@echo "========================================="
+	@echo "Compiler (CXX): $(CXX)"
+	@echo "Compiler (CC): $(CC)"
+	@echo "Flags (CXX): $(FINAL_CXXFLAGS)"
+	@echo "Flags (C): $(FINAL_CFLAGS)"
+	@echo "LDFLAGS: $(FINAL_LDFLAGS)"
+	@echo "Source Files: $(words $(ALL_OBJS))"
+	@echo "Build Dir: $(BUILD_DIR) (CWD: $(shell pwd))"
+	@echo "========================================="
+
+dirs:
+	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(OBJ_DIR)/common
+	@mkdir -p $(OBJ_DIR)/host
+	@mkdir -p $(OBJ_DIR)/securec # <-- 添加 securec obj 目录
+
+
+$(BUILD_DIR)/$(TARGET_NAME): $(ALL_OBJS)
+	@echo ">>> Linking $(TARGET_NAME)..."
+	$(CXX) -o $@ $^ $(FINAL_LDFLAGS)
+	@echo "✓ Built: $@"
+	@ls -lh $@
+
+$(OBJ_DIR)/common/%.o: hdc/src/common/%.cpp
+	@echo ">> Compiling (common) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) $(FINAL_CXXFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/host/%.o: hdc/src/host/%.cpp
+	@echo ">> Compiling (host) $<..."
+	@mkdir -p $(dir $@)
+	$(CXX) $(FINAL_CXXFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/securec/%.o: securec/src/%.c
+	@echo ">> Compiling (securec) $<..."
+	@mkdir -p $(dir $@)
+	$(CC) $(FINAL_CFLAGS) -c $< -o $@
+
+clean:
+	@echo "Cleaning hdc-lite objects..."
+	rm -rf $(BUILD_DIR)

@@ -12,6 +12,7 @@ PKGS=zlib \
     tar \
     bash \
     hdc \
+	hdc-lite \
 	libzip \
     horpkg \
     busybox \
@@ -31,6 +32,7 @@ PKGS=zlib \
     tar \
     bash \
     hdc \
+	hdc-lite \
 	libzip \
     horpkg \
     busybox \
