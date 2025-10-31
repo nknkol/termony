@@ -10,7 +10,7 @@
 /* * [必需] 目标命令的绝对路径
  * (安装在 horpkgbin 目录中)
  */
-#define TARGET_COMMAND_PATH "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/horpkgbin/provisioning_tool"
+#define TARGET_COMMAND_PATH "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/horpkgbin/hdc"
 
 
 /* * [可选] 要 *添加* 到库路径的环境变量名

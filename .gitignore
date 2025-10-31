@@ -16,3 +16,5 @@
 arkuix-sdk.zip
 *.hap
 .vscode
+.DS_Store
+build-hnp/hapsigntool_cpp.zip
