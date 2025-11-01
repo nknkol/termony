@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <stdlib.h> // for free()
 #include "commands.h"
 #include "utils.h"
 #include <stdio.h>
@@ -6,6 +7,12 @@
 #include <yyjson.h>
 
 int download_file(const char *url, const char *outfile);
+
+// --- NEW Declarations (from utils.h) ---
+char* hdc_get_uuid(void);
+int store_uuid(const char* uuid);
+int is_initialized(void);
+// --- END NEW ---
 
 int ensure_config_exists() {
     const char *home_dir = getenv("HOME");
@@ -55,19 +62,50 @@ int ensure_config_exists() {
     return 0;
 }
 
+// --- MODIFIED cmd_init ---
 int cmd_init(int argc, char *argv[]) {
     printf("\n%s╔════════════════════════════════════════╗%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s║  Horpkg Initialization                 ║%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s╚════════════════════════════════════════╝%s\n\n", COLOR_CYAN, COLOR_RESET);
 
+    // 1. 确保配置目录和默认镜像文件存在
     if (ensure_config_exists() != 0) {
-        print_error("Initialization failed.");
+        print_error("Configuration directory setup failed.");
         return 1;
+    }
+    
+    // 2. 检查是否已经初始化 (已有UUID)
+    if (is_initialized()) {
+        print_warning("Horpkg is already initialized (UUID found).");
+        print_info("To re-initialize, remove '~/.horpkg/uuid.conf' and run again.");
+    } else {
+        // 3. 尝试通过HDC获取UUID
+        // (此时 main.c 已经确认HDC已连接)
+        print_info("Getting device UUID via HDC...");
+        
+        char* uuid = hdc_get_uuid();
+        if (uuid) {
+            // 4. 存储UUID
+            if (store_uuid(uuid) == 0) {
+                print_success("Successfully retrieved and stored device UUID.");
+                printf("    UUID: %s\n", uuid);
+            } else {
+                print_error("Failed to store device UUID.");
+                free(uuid);
+                return 1;
+            }
+            free(uuid);
+        } else {
+            print_error("Failed to get device UUID via HDC.");
+            print_prompt("Ensure 'hdc shell bm get --udid' is working correctly.");
+            return 1;
+        }
     }
 
     print_success("Horpkg configuration is ready.");
     return 0;
 }
+// --- END MODIFIED cmd_init ---
 
 int cmd_install(int argc, char *argv[]) {
     if (argc < 1) {
@@ -75,6 +113,14 @@ int cmd_install(int argc, char *argv[]) {
         printf("Usage: horpkg install <package>\n");
         return 1;
     }
+
+    // --- NEW: 检查初始化 ---
+    if (!is_initialized()) {
+        print_error("Horpkg not initialized.");
+        print_prompt("Please run 'horpkg init' first to register your device.");
+        return 1;
+    }
+    // --- END NEW ---
 
     if (ensure_config_exists() != 0) {
         return 1;
@@ -184,6 +230,8 @@ int cmd_install(int argc, char *argv[]) {
     return 0;
 }
 
+// ... [ cmd_remove, cmd_update, cmd_list, ... cmd_version 保持不变 ] ...
+
 int cmd_remove(int argc, char *argv[]) {
     if (argc < 1) {
         print_error("Package name required");
@@ -221,7 +269,7 @@ int cmd_update(int argc, char *argv[]) {
     printf("Latest version:  1.1.0\n");
     printf("\n");
     
-    printf("%s→%s Updating %s...\n", COLOR_BLUE, COLOR_RESET, package);  // ← 改这里
+    printf("%s→%s Updating %s...\n", COLOR_BLUE, COLOR_RESET, package);
     print_success("Update complete");
     printf("\n");
     

@@ -19,9 +19,18 @@ void print_success(const char *msg);
 void print_error(const char *msg);
 void print_warning(const char *msg);
 void print_info(const char *msg);
+void print_prompt(const char *msg);
 
 // 文件和路径工具
 char* get_config_path(const char* filename);
 int create_dir_if_not_exists(const char *path);
 
-#endif // HORPKG_UTILS_H
+// HDC 和初始化工具
+void hdc_start_service(void);
+int hdc_is_connected(void);
+int hdc_connect_port(const char *port);
+char* hdc_get_uuid(void);
+int store_uuid(const char* uuid);
+int is_initialized(void);
+
+#endif

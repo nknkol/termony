@@ -1,16 +1,9 @@
-# 包含鸿蒙交叉编译环境
 include ../utils/Makefrag
 
-# --- 配置 ---
-
-# 1. 真实的 horpkg 二进制文件名
-#    (我们将它编译为 'horpkg'，但放在 'horpkgbin' 目录下)
 REAL_BINARY_NAME = horpkg
 
-# 2. shim (包装器) 的最终名称 (也叫 'horpkg'，但放在 'bin' 目录下)
 SHIM_NAME = horpkg
 
-# 3. shim 配置文件的路径 (使用你提供的 horpkg/shim/config.h)
 SHIM_CONFIG_PATH = $(shell pwd)/shim/config.h
 
 # --- 目标 ---

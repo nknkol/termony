@@ -6,6 +6,7 @@
 set -x -e
 # export TOOL_HOME=/Applications/DevEco-Studio.app/Contents
 # export PATH=$TOOL_HOME/sdk/default/openharmony/toolchains:$PATH
+hdc uninstall org.horpkg.app
 hdc file send ./entry/build/default/outputs/default/entry-default-signed.hap /data/local/tmp
 hdc shell bm install -p /data/local/tmp/entry-default-signed.hap
 # hdc shell aa start -a EntryAbility -b $(jq ".app.bundleName" AppScope/app.json5)
