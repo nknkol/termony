@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <yyjson.h>
+#include "auth.h"
+#include "signing.h"
+#include "http.h"
 
 int download_file(const char *url, const char *outfile);
 
@@ -62,33 +65,25 @@ int ensure_config_exists() {
     return 0;
 }
 
-// --- MODIFIED cmd_init ---
 int cmd_init(int argc, char *argv[]) {
     printf("\n%s╔════════════════════════════════════════╗%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s║  Horpkg Initialization                 ║%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s╚════════════════════════════════════════╝%s\n\n", COLOR_CYAN, COLOR_RESET);
 
-    // 1. 确保配置目录和默认镜像文件存在
+    // ===== 阶段1: 基础配置 =====
     if (ensure_config_exists() != 0) {
         print_error("Configuration directory setup failed.");
         return 1;
     }
     
-    // 2. 检查是否已经初始化 (已有UUID)
-    if (is_initialized()) {
-        print_warning("Horpkg is already initialized (UUID found).");
-        print_info("To re-initialize, remove '~/.horpkg/uuid.conf' and run again.");
-    } else {
-        // 3. 尝试通过HDC获取UUID
-        // (此时 main.c 已经确认HDC已连接)
+    // ===== 阶段2: 设备 UUID =====
+    if (!is_initialized()) {
         print_info("Getting device UUID via HDC...");
-        
         char* uuid = hdc_get_uuid();
         if (uuid) {
-            // 4. 存储UUID
             if (store_uuid(uuid) == 0) {
-                print_success("Successfully retrieved and stored device UUID.");
-                printf("    UUID: %s\n", uuid);
+                print_success("Device UUID retrieved:");
+                printf("    UUID: %s\n\n", uuid);
             } else {
                 print_error("Failed to store device UUID.");
                 free(uuid);
@@ -97,15 +92,228 @@ int cmd_init(int argc, char *argv[]) {
             free(uuid);
         } else {
             print_error("Failed to get device UUID via HDC.");
-            print_prompt("Ensure 'hdc shell bm get --udid' is working correctly.");
             return 1;
         }
+    } else {
+        print_info("Device UUID already registered.\n");
     }
-
-    print_success("Horpkg configuration is ready.");
+    
+    // ===== 阶段3: 华为账号认证 =====
+    print_info("Step 1: Huawei Developer Account Authentication");
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    user_info_t user = {0};
+    char *config_token_path = get_config_path("token.conf");
+    
+    // 检查是否已有 token
+    FILE *fp = fopen(config_token_path, "r");
+    if (fp) {
+        if (fgets(user.token, sizeof(user.token), fp)) {
+            // 去除换行符
+            size_t len = strlen(user.token);
+            if (len > 0 && user.token[len-1] == '\n') {
+                user.token[len-1] = '\0';
+            }
+            
+            // 验证 Token
+            if (auth_check_jwt_token(user.token, &user) == 0) {
+                auth_get_user_info(user.token, &user);
+                print_success("Using existing authentication");
+                printf("    User: %s (%s)\n", user.nickname, user.user_id);
+                printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
+            } else {
+                print_warning("Existing token invalid, re-authenticating...\n");
+                fclose(fp);
+                fp = NULL;
+            }
+        }
+        if (fp) fclose(fp);
+    }
+    
+    if (user.token[0] == '\0') {
+        // 需要重新认证
+        if (auth_init_oauth(&user) != 0) {
+            free(config_token_path);
+            return 1;
+        }
+        
+        auth_get_user_info(user.token, &user);
+        
+        print_success("Authentication successful!");
+        printf("    User: %s (%s)\n", user.nickname, user.user_id);
+        printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
+        
+        // 保存 Token
+        fp = fopen(config_token_path, "w");
+        if (fp) {
+            fprintf(fp, "%s\n", user.token);
+            fclose(fp);
+        }
+    }
+    free(config_token_path);
+    
+    // ===== 阶段4: 生成密钥和证书 =====
+    print_info("Step 2: Signing Key & Certificate Setup");
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    char *keystore_path = get_config_path("horpkg.p12");
+    char *cert_path = get_config_path("horpkg.cer");
+    cert_info_t cert = {0};
+    
+    // 检查密钥库是否已存在
+    if (access(keystore_path, F_OK) == 0) {
+        print_info("Keystore already exists, skipping generation.\n");
+        
+        // 尝试加载已有的证书 ID
+        char *cert_id_path = get_config_path("cert_id.conf");
+        fp = fopen(cert_id_path, "r");
+        if (fp) {
+            fgets(cert.id, sizeof(cert.id), fp);
+            // 去除换行符
+            size_t len = strlen(cert.id);
+            if (len > 0 && cert.id[len-1] == '\n') {
+                cert.id[len-1] = '\0';
+            }
+            fclose(fp);
+        }
+        free(cert_id_path);
+    } else {
+        print_info("Generating keystore...");
+        if (signing_generate_keystore(keystore_path, "horpkg", "horpkg") != 0) {
+            print_error("Failed to generate keystore");
+            free(keystore_path);
+            free(cert_path);
+            return 1;
+        }
+        print_success("Keystore created.\n");
+        
+        print_info("Generating CSR...");
+        char csr[4096];
+        if (signing_generate_csr(keystore_path, "horpkg", "horpkg", csr, sizeof(csr)) != 0) {
+            print_error("Failed to generate CSR");
+            free(keystore_path);
+            free(cert_path);
+            return 1;
+        }
+        print_success("CSR generated.\n");
+        
+        print_info("Requesting certificate from Huawei Cloud...");
+        if (signing_request_cert(&user, csr, &cert) != 0) {
+            print_error("Failed to request certificate");
+            free(keystore_path);
+            free(cert_path);
+            return 1;
+        }
+        print_success("Certificate created:");
+        printf("    ID: %s\n\n", cert.id);
+        
+        print_info("Downloading certificate...");
+        if (signing_download_cert(cert.object_id, user.token, cert_path) != 0) {
+            print_error("Failed to download certificate");
+            free(keystore_path);
+            free(cert_path);
+            return 1;
+        }
+        print_success("Certificate downloaded.\n");
+        
+        print_info("Importing certificate to keystore...");
+        if (signing_import_cert(keystore_path, "horpkg", "horpkg", cert_path) != 0) {
+            print_error("Failed to import certificate");
+            free(keystore_path);
+            free(cert_path);
+            return 1;
+        }
+        print_success("Certificate imported.\n");
+        
+        // 保存证书 ID
+        char *cert_id_path = get_config_path("cert_id.conf");
+        fp = fopen(cert_id_path, "w");
+        if (fp) {
+            fprintf(fp, "%s\n", cert.id);
+            fclose(fp);
+        }
+        free(cert_id_path);
+    }
+    
+    free(keystore_path);
+    free(cert_path);
+    
+    // ===== 阶段5: 配置 Provision =====
+    print_info("Step 3: Provision Configuration");
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    
+    // 获取设备列表
+    print_info("Getting device list...");
+    char **device_ids = NULL;
+    char **device_names = NULL;
+    int device_count = 0;
+    
+    if (signing_get_device_list(user.token, &device_ids, &device_names, &device_count) != 0) {
+        print_error("Failed to get device list");
+        return 1;
+    }
+    
+    if (device_count == 0) {
+        print_warning("No devices registered in Huawei Cloud");
+        print_prompt("Please register your device first at:");
+        printf("    https://developer.huawei.com\n\n");
+    } else {
+        print_success("Found devices:");
+        for (int i = 0; i < device_count; i++) {
+            printf("    ├─ %s\n", device_names[i]);
+        }
+        printf("\n");
+        
+        // 为核心包创建 Provision
+        print_info("Creating provision for org.horpkg.core...");
+        provision_info_t provision = {0};
+        
+        if (signing_create_provision(&user, &cert, (const char**)device_ids, device_count, 
+                                     "org.horpkg.core", &provision) != 0) {
+            print_error("Failed to create provision");
+        } else {
+            // 下载 Provision 文件
+            char *provision_dir = get_config_path("provision");
+            create_dir_if_not_exists(provision_dir);
+            
+            char provision_path[512];
+            snprintf(provision_path, sizeof(provision_path), 
+                    "%s/%s.p7b", provision_dir, provision.name);
+            
+            if (signing_download_provision(provision.url, provision_path) == 0) {
+                print_success("Provision created and downloaded.\n");
+            }
+            
+            free(provision_dir);
+        }
+    }
+    
+    // 清理
+    if (device_ids) {
+        for (int i = 0; i < device_count; i++) {
+            free(device_ids[i]);
+            free(device_names[i]);
+        }
+        free(device_ids);
+        free(device_names);
+    }
+    
+    // ===== 完成 =====
+    printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", COLOR_GREEN, COLOR_RESET);
+    printf("%s✅ Horpkg initialization complete!%s\n\n", COLOR_GREEN, COLOR_RESET);
+    
+    printf("Configuration Summary:\n");
+    printf("  User: %s%s%s (%s)\n", COLOR_BOLD, user.nickname, COLOR_RESET, user.user_id);
+    printf("  Keystore: ~/.horpkg/horpkg.p12\n");
+    printf("  Certificate: ~/.horpkg/horpkg.cer\n\n");
+    
+    printf("Next steps:\n");
+    printf("  %shorpkg search python%s     # Search for packages\n", COLOR_CYAN, COLOR_RESET);
+    printf("  %shorpkg install python%s    # Install a package\n", COLOR_CYAN, COLOR_RESET);
+    printf("  %shorpkg list%s              # List installed packages\n\n", COLOR_CYAN, COLOR_RESET);
+    
     return 0;
 }
-// --- END MODIFIED cmd_init ---
 
 int cmd_install(int argc, char *argv[]) {
     if (argc < 1) {

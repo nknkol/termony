@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <unistd.h> // For access() and usleep()
 #include <ctype.h>  // For isspace()
+#include <stdarg.h>  // ← 添加这个头文件
+
 
 // --- 修复的 trim_whitespace 函数 (增加了日志) ---
 static void trim_whitespace(char *str) {
@@ -62,6 +64,34 @@ void print_info(const char *msg) {
 
 void print_prompt(const char *msg) {
     printf("%s?%s %s\n", COLOR_YELLOW, COLOR_RESET, msg);
+}
+
+// ← 添加格式化版本的函数
+void print_error_fmt(const char *fmt, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    print_error(buffer);
+}
+
+void print_warning_fmt(const char *fmt, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    print_warning(buffer);
+}
+
+void print_info_fmt(const char *fmt, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    print_info(buffer);
 }
 
 int create_dir_if_not_exists(const char *path) {

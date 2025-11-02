@@ -20,11 +20,13 @@ void print_error(const char *msg);
 void print_warning(const char *msg);
 void print_info(const char *msg);
 void print_prompt(const char *msg);
-
+// 格式化输出工具函数
+void print_error_fmt(const char *fmt, ...);
+void print_warning_fmt(const char *fmt, ...);
+void print_info_fmt(const char *fmt, ...);
 // 文件和路径工具
 char* get_config_path(const char* filename);
 int create_dir_if_not_exists(const char *path);
-
 // HDC 和初始化工具
 void hdc_start_service(void);
 int hdc_is_connected(void);
@@ -32,5 +34,11 @@ int hdc_connect_port(const char *port);
 char* hdc_get_uuid(void);
 int store_uuid(const char* uuid);
 int is_initialized(void);
+
+// 配置管理
+int config_save_toml(const char *config_path, void *data);
+int config_load_toml(const char *config_path, void *data);
+char* get_jre_path(void);
+char* get_hdc_path(void);
 
 #endif
