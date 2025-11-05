@@ -10,66 +10,15 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include "logger.h"
 
-
-static void trim_whitespace(char *str) {
-    print_info("[LOG] trim_whitespace: Entered"); // <-- 新日志
-    if (str == NULL) {
-        print_info("[LOG] trim_whitespace: str is NULL, returning"); // <-- 新日志
-        return;
-    }
-
-    // 1. 查找第一个非空白字符
-    char *start = str;
-    while (isspace((unsigned char)*start)) {
-        start++;
-    }
-    print_info("[LOG] trim_whitespace: Found first non-space"); // <-- 新日志
-
-    // 2. 将非空白部分（包括 \0）移动到字符串开头
-    if (start != str) {
-        // strlen(start) + 1 确保 \0 终止符也被复制
-        memmove(str, start, strlen(start) + 1);
-        print_info("[LOG] trim_whitespace: memmove complete"); // <-- 新日志
-    }
-
-    // 3. 移除尾部的空白字符
-    size_t len = strlen(str);
-    while (len > 0 && isspace((unsigned char)str[len - 1])) {
-        len--;
-    }
-    str[len] = '\0'; // 设置新的 \0 终止符
-    print_info("[LOG] trim_whitespace: Trailing whitespace removed, exiting"); // <-- 新日志
-}
-// --- 修复结束 ---
-
-void print_success(const char *msg) {
-    printf("%s✓%s %s\n", COLOR_GREEN, COLOR_RESET, msg);
-}
-
-void print_error(const char *msg) {
-    fprintf(stderr, "%s✗ Error:%s %s\n", COLOR_RED, COLOR_RESET, msg);
-}
-
-void print_warning(const char *msg) {
-    printf("%s⚠ Warning:%s %s\n", COLOR_YELLOW, COLOR_RESET, msg);
-}
-
-void print_info(const char *msg) {
-    printf("%s→%s %s\n", COLOR_BLUE, COLOR_RESET, msg);
-}
-
-void print_prompt(const char *msg) {
-    printf("%s?%s %s\n", COLOR_YELLOW, COLOR_RESET, msg);
-}
-
-// ← 添加格式化版本的函数
 void print_error_fmt(const char *fmt, ...) {
     char buffer[512];
     va_list args;
     va_start(args, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
+    // [修改] 调用 print_error，它已被重定向到 logger
     print_error(buffer);
 }
 
@@ -79,6 +28,7 @@ void print_warning_fmt(const char *fmt, ...) {
     va_start(args, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
+    // [修改] 调用 print_warning
     print_warning(buffer);
 }
 
@@ -100,13 +50,59 @@ void print_success_fmt(const char *fmt, ...) {
     print_success(buffer);
 }
 
+static void trim_whitespace(char *str) {
+    log_debug("trim_whitespace: Entered");
+    if (str == NULL) {
+        log_debug("trim_whitespace: str is NULL, returning");
+        return;
+    }
+
+    char *start = str;
+    while (isspace((unsigned char)*start)) {
+        start++;
+    }
+    log_debug("trim_whitespace: Found first non-space");
+
+    if (start != str) {
+        memmove(str, start, strlen(start) + 1);
+        log_debug("trim_whitespace: memmove complete");
+    }
+
+    size_t len = strlen(str);
+    while (len > 0 && isspace((unsigned char)str[len - 1])) {
+        len--;
+    }
+    str[len] = '\0';
+    log_debug("trim_whitespace: Trailing whitespace removed, exiting");
+}
+
+void print_success(const char *msg) {
+    logger_log(LOG_LEVEL_INFO, NULL, 0, "%s✓%s %s", COLOR_GREEN, COLOR_RESET, msg);
+}
+
+void print_error(const char *msg) {
+    logger_log(LOG_LEVEL_WARN, NULL, 0, "%s✗ Error:%s %s", COLOR_RED, COLOR_RESET, msg);
+}
+
+void print_warning(const char *msg) {
+    logger_log(LOG_LEVEL_WARN, NULL, 0, "%s⚠ Warning:%s %s", COLOR_YELLOW, COLOR_RESET, msg);
+}
+
+void print_info(const char *msg) {
+    logger_log(LOG_LEVEL_INFO, NULL, 0, "%s→%s %s", COLOR_BLUE, COLOR_RESET, msg);
+}
+
+void print_prompt(const char *msg) {
+    printf("%s?%s %s\n", COLOR_YELLOW, COLOR_RESET, msg);
+}
+
 int create_dir_if_not_exists(const char *path) {
     struct stat st = {0};
     if (stat(path, &st) == -1) {
         if (mkdir(path, 0755) != 0 && errno != EEXIST) {
             char err_msg[256];
             snprintf(err_msg, sizeof(err_msg), "Failed to create directory %s: %s", path, strerror(errno));
-            print_error(err_msg);
+            print_error_fmt("%s", err_msg);
             return -1;
         }
     }
@@ -126,7 +122,6 @@ char* get_config_path(const char* filename) {
          return NULL; 
     }
     
-    // 使用 snprintf 保证安全
     size_t len = strlen(home_dir) + strlen("/.horpkg/") + strlen(filename) + 1;
     char* path = malloc(len);
     if (path) {
@@ -136,18 +131,13 @@ char* get_config_path(const char* filename) {
     return path;
 }
 
-// --- HDC 功能函数 (使用 hdc-lite) ---
-
 /**
  * @brief 尝试启动HDC服务 (system call)
  */
 void hdc_start_service(void) {
-    // --- (REQ 2): 添加日志 ---
-    print_info("Ensuring HDC service is running...");
-    // 执行 "hdc-lite start"，重定向输出避免污染 stdout
+    log_info("Ensuring HDC service is running...");
     system("hdc-lite start > /dev/null 2>&1");
-    print_info("HDC service check complete.");
-    // --- END MODIFIED ---
+    log_info("HDC service check complete.");
 }
 
 /**
@@ -155,42 +145,38 @@ void hdc_start_service(void) {
  * @return 1 表示已连接, 0 表示未连接
  */
 int hdc_is_connected(void) {
-    print_info("[LOG] hdc_is_connected: Entered function"); // <-- 新日志
+    log_debug("hdc_is_connected: Entered function");
     char line[256];
     FILE *fp = popen("hdc-lite list targets", "r");
     if (fp == NULL) {
         print_error("Failed to run 'hdc-lite'. Is it in your PATH?");
-        print_info("[LOG] hdc_is_connected: popen failed, returning 0"); // <-- 新日志
+        log_debug("hdc_is_connected: popen failed, returning 0");
         return 0; 
     }
-    print_info("[LOG] hdc_is_connected: popen() successful"); // <-- 新日志
-
+    log_debug("hdc_is_connected: popen() successful");
     // 读取第一行输出
     if (fgets(line, sizeof(line), fp) == NULL) {
-        print_info("[LOG] hdc_is_connected: fgets() returned NULL (no output)"); // <-- 新日志
+        log_debug("hdc_is_connected: fgets() returned NULL (no output)");
         pclose(fp);
-        print_info("[LOG] hdc_is_connected: pclose() after fgets NULL, returning 0"); // <-- 新日志
+        log_debug("hdc_is_connected: pclose() after fgets NULL, returning 0");
         return 0; // 没有输出
     }
-    print_info("[LOG] hdc_is_connected: fgets() successful"); // <-- 新日志
+    log_debug("hdc_is_connected: fgets() successful");
     
     pclose(fp);
-    print_info("[LOG] hdc_is_connected: pclose() successful"); // <-- 新日志
+    log_debug("hdc_is_connected: pclose() successful");
 
     trim_whitespace(line);
-    print_info("[LOG] hdc_is_connected: trim_whitespace() complete"); // <-- 新日志
-
+    log_debug("hdc_is_connected: trim_whitespace() complete");
     // 打印修剪后的行内容
-    printf("[LOG] Trimmed line: \"%s\"\n", line); // <-- 新日志
-
+    log_debug("Trimmed line: \"%s\"", line);
     // 如果输出是 "[Empty]" 或空字符串，则未连接
     if (strcmp(line, "[Empty]") == 0 || strlen(line) == 0) {
-        print_info("[LOG] hdc_is_connected: Result: Not connected (0)"); // <-- 新日志
+        log_debug("hdc_is_connected: Result: Not connected (0)");
         return 0;
     }
-
     // 否则，假定已连接
-    print_info("[LOG] hdc_is_connected: Result: Connected (1)"); // <-- 新日志
+    log_debug("hdc_is_connected: Result: Connected (1)");
     return 1;
 }
 
@@ -203,7 +189,7 @@ int hdc_connect_port(const char *port) {
     char command[256];
     snprintf(command, sizeof(command), "hdc-lite tconn 127.0.0.1:%s > /dev/null 2>&1", port);
     
-    print_info("Executing connection command...");
+    log_info("Executing connection command...");
     int status = system(command);
     if (status != 0) {
         print_error("Failed to execute 'hdc-lite tconn' command.");
@@ -241,7 +227,7 @@ char* hdc_get_uuid(void) {
     }
     pclose(fp);
     
-    return uuid; // 如果没找到，将返回 NULL
+    return uuid;
 }
 /**
  * @brief 检查horpkg是否已初始化 (是否已有UUID，并且UUID是否与当前设备匹配)
@@ -249,20 +235,20 @@ char* hdc_get_uuid(void) {
  */
 int is_initialized(void) {
     if (g_config.device_uuid[0] == '\0') {
-        print_info("[LOG] is_initialized: device_uuid in config is empty.");
+        log_debug("is_initialized: device_uuid in config is empty."); // <-- [使用 log_debug]
         return 0;
     }
 
     char* current_uuid = hdc_get_uuid();
     if (current_uuid == NULL) {
-        print_info("[LOG] is_initialized: Could not get current UUID from HDC (device disconnected?).");
+        log_debug("is_initialized: Could not get current UUID from HDC (device disconnected?)."); // <-- [使用 log_debug]
         return 0; 
     }
 
     int match = (strcmp(g_config.device_uuid, current_uuid) == 0);
     
     if (match) {
-        print_info("[LOG] is_initialized: Stored UUID matches current device.");
+        log_debug("is_initialized: Stored UUID matches current device."); // <-- [使用 log_debug]
     } else {
         char truncated_stored[11] = {0};
         char truncated_current[11] = {0};

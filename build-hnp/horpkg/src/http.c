@@ -1,9 +1,9 @@
-// build-hnp/horpkg/src/http.c
 #include "http.h"
 #include "utils.h"
 #include "auth.h"
 #include <stdlib.h>
 #include <string.h>
+#include "logger.h"
 
 // libcurl 回调函数
 static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -23,7 +23,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     
     return realsize;
 }
-// --- [新增] 辅助函数：构建标准的认证 Header (API 1.2 规范) ---
+// 辅助函数：构建标准的认证 Header
 static struct curl_slist* build_authed_headers(const struct user_info_s *user, const char* content_type, int send_accept_json) {
     struct curl_slist *headers = NULL;
     char uid_header[128];
@@ -32,7 +32,7 @@ static struct curl_slist* build_authed_headers(const struct user_info_s *user, c
 
     // 检查 access_token 是否有效
     if (!user || user->access_token[0] == '\0') {
-        print_error("[HTTP] build_authed_headers: access_token is missing.");
+        log_error("[HTTP] build_authed_headers: access_token is missing.");
         return NULL;
     }
 
@@ -40,7 +40,6 @@ static struct curl_slist* build_authed_headers(const struct user_info_s *user, c
     snprintf(token_header, sizeof(token_header), "oauth2token: %s", user->access_token);
     snprintf(team_header, sizeof(team_header), "teamid: %s", user->team_id);
     
-    // (来自 API 1.2 规范)
     headers = curl_slist_append(headers, "user-agent: Dart/3.7 (dart:io)");
     // headers = curl_slist_append(headers, "accept-encoding: gzip");
     headers = curl_slist_append(headers, "Host: connect-api.cloud.huawei.com");
@@ -55,8 +54,6 @@ static struct curl_slist* build_authed_headers(const struct user_info_s *user, c
         headers = curl_slist_append(headers, content_header);
     }
     
-    // headers = curl_slist_append(headers, "Accept: application/json");
-
     if (send_accept_json) {
         headers = curl_slist_append(headers, "Accept: application/json");
     }
@@ -97,19 +94,19 @@ http_response_t* http_get_with_custom_headers(const char *url, struct curl_slist
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
     
 
-    printf("\n[DEBUG] === HTTP Response Body (URL: %s) ===\n", url);
+    log_debug("=== HTTP Response Body (URL: %s) ===", url);
     if (response->data && response->size > 0) {
-        printf("%s\n", response->data);
+        log_debug("%s", response->data);
     } else {
-        printf("(No data received)\n");
+        log_debug("(No data received)");
     }
-    printf("[DEBUG] === End of Response (HTTP %ld) ===\n\n", response->status_code);
+    log_debug("=== End of Response (HTTP %ld) ===", response->status_code);
 
 
     curl_easy_cleanup(curl);
     
     if (res != CURLE_OK) {
-        print_error_fmt("[HTTP] http_get_with_custom_headers failed: %s", curl_easy_strerror(res));
+        log_error("[HTTP] http_get_with_custom_headers failed: %s", curl_easy_strerror(res));
         free(response->data);
         free(response);
         return NULL;
@@ -160,21 +157,19 @@ http_response_t* http_get_authed(const char *url, const struct user_info_s *user
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
     
-    // [修复] 打印响应体
-    printf("\n[DEBUG] === HTTP Response Body (URL: %s) ===\n", url);
+    log_debug("=== HTTP Response Body (URL: %s) ===", url);
     if (response->data && response->size > 0) {
-        printf("%s\n", response->data);
+        log_debug("%s", response->data);
     } else {
-        printf("(No data received)\n");
+        log_debug("(No data received)");
     }
-    printf("[DEBUG] === End of Response (HTTP %ld) ===\n\n", response->status_code);
-    // [修复] 结束
+    log_debug("=== End of Response (HTTP %ld) ===", response->status_code);
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     
     if (res != CURLE_OK) {
-        print_error_fmt("[HTTP] http_get_authed failed: %s", curl_easy_strerror(res));
+        log_error("[HTTP] http_get_authed failed: %s", curl_easy_strerror(res));
         free(response->data);
         free(response);
         return NULL;
@@ -184,7 +179,7 @@ http_response_t* http_get_authed(const char *url, const struct user_info_s *user
 }
 
 /**
- * @brief [新增] 发送一个带认证的 HTTP DELETE 请求
+ * @brief 发送一个带认证的 HTTP DELETE 请求
  */
 http_response_t* http_delete_authed(const char *url, const struct user_info_s *user, const char *data, const char *content_type) {
     CURL *curl;
@@ -234,20 +229,19 @@ http_response_t* http_delete_authed(const char *url, const struct user_info_s *u
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
     
-    // (Debug 输出)
-    printf("\n[DEBUG] === HTTP Response Body (DELETE: %s) ===\n", url);
+    log_debug("=== HTTP Response Body (DELETE: %s) ===", url);
     if (response->data && response->size > 0) {
-        printf("%s\n", response->data);
+        log_debug("%s", response->data);
     } else {
-        printf("(No data received)\n");
+        log_debug("(No data received)");
     }
-    printf("[DEBUG] === End of Response (HTTP %ld) ===\n\n", response->status_code);
+    log_debug("=== End of Response (HTTP %ld) ===", response->status_code);
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     
     if (res != CURLE_OK) {
-        print_error_fmt("[HTTP] http_delete_authed failed: %s", curl_easy_strerror(res));
+        log_error("[HTTP] http_delete_authed failed: %s", curl_easy_strerror(res));
         free(response->data);
         free(response);
         return NULL;
@@ -301,21 +295,19 @@ http_response_t* http_post_authed(const char *url, const struct user_info_s *use
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
     
 
-    // [修复] 打印响应体
-    printf("\n[DEBUG] === HTTP Response Body (URL: %s) ===\n", url);
+    log_debug("=== HTTP Response Body (URL: %s) ===", url);
     if (response->data && response->size > 0) {
-        printf("%s\n", response->data);
+        log_debug("%s", response->data);
     } else {
-        printf("(No data received)\n");
+        log_debug("(No data received)");
     }
-    printf("[DEBUG] === End of Response (HTTP %ld) ===\n\n", response->status_code);
-    // [修复] 结束
+    log_debug("=== End of Response (HTTP %ld) ===", response->status_code);
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     
     if (res != CURLE_OK) {
-        print_error_fmt("[HTTP] http_post_authed failed: %s", curl_easy_strerror(res));
+        log_error("[HTTP] http_post_authed failed: %s", curl_easy_strerror(res));
         free(response->data);
         free(response);
         return NULL;

@@ -1,8 +1,10 @@
-#include "commands.h"
-#include "utils.h"
 #include <stdio.h>
 #include <string.h>
+#include "commands.h"
+#include "utils.h"
 #include "config.h"
+#include "logger.h"
+#include <strings.h>
 
 typedef struct {
     const char *name;
@@ -26,20 +28,33 @@ static const Command commands[] = {
     {NULL, NULL, NULL}
 };
 
-// --- NEW Declarations (from utils.h) ---
 void hdc_start_service(void);
 int hdc_is_connected(void);
-int hdc_connect_port(const char *port); // <-- 确保新函数被声明 (虽然在utils.h里)
+int hdc_connect_port(const char *port);
 void print_prompt(const char *msg);
-// --- END NEW ---
-
 
 int main(int argc, char *argv[]) {
-    if (config_load() != 0) { // [horpkg/src/config.c]
-        print_error("FATAL: Failed to load configuration. Exiting.");
+
+    log_level_t level = LOG_LEVEL_INFO;
+    const char *log_level_env = getenv("HORPKG_LOG_LEVEL");
+    if (log_level_env) {
+        if (strcasecmp(log_level_env, "DEBUG") == 0) {
+            level = LOG_LEVEL_DEBUG;
+        } else if (strcasecmp(log_level_env, "WARN") == 0) {
+            level = LOG_LEVEL_WARN;
+        } else if (strcasecmp(log_level_env, "ERROR") == 0) {
+            level = LOG_LEVEL_ERROR;
+        } else if (strcasecmp(log_level_env, "NONE") == 0) {
+            level = LOG_LEVEL_NONE;
+        }
+    }
+    logger_init(level);
+
+    if (config_load() != 0) {
+        log_fatal("Failed to load configuration. Exiting.");
         return 1;
     }
-    // No command provided
+
     if (argc < 2) {
         cmd_help(0, NULL);
         return 1;
