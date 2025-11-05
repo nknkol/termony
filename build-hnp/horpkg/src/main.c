@@ -2,6 +2,7 @@
 #include "utils.h"
 #include <stdio.h>
 #include <string.h>
+#include "config.h"
 
 typedef struct {
     const char *name;
@@ -34,6 +35,10 @@ void print_prompt(const char *msg);
 
 
 int main(int argc, char *argv[]) {
+    if (config_load() != 0) { // [horpkg/src/config.c]
+        print_error("FATAL: Failed to load configuration. Exiting.");
+        return 1;
+    }
     // No command provided
     if (argc < 2) {
         cmd_help(0, NULL);

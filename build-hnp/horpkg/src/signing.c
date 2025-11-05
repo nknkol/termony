@@ -53,25 +53,14 @@ int signing_generate_keystore(const char *keystore_path, const char *alias, cons
     return 0;
 }
 
-// 生成 CSR
-int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, char *csr_out, size_t csr_size) {
+/**
+ * @brief (修改) 生成 CSR 并将其保存到指定路径
+ */
+int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, 
+                         const char *csr_output_path, // <-- [新增]
+                         char *csr_out, size_t csr_size) {
+    
     char cmd[2048];
-    
-    char *temp_file_path = get_config_path("horpkg_csr_XXXXXX");
-    if (!temp_file_path) {
-        print_error("Failed to get config path for CSR temp file.");
-        return -1;
-    }
-
-    int fd = mkstemp(temp_file_path);
-    if (fd == -1) {
-        print_error("Failed to create temp file for CSR");
-        print_error_fmt("System error: %s (Path: %s)", strerror(errno), temp_file_path); 
-        free(temp_file_path);
-        return -1;
-    }
-    close(fd);
-    
     const char *lib_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/lib";
 
     snprintf(cmd, sizeof(cmd),
@@ -83,24 +72,20 @@ int signing_generate_csr(const char *keystore_path, const char *alias, const cha
              "-keystoreFile \"%s\" -keystorePwd \"%s\" "
              "-outFile \"%s\" "
              "2>&1",
-             lib_path, alias, password, alias, keystore_path, password, temp_file_path);
+             lib_path, alias, password, alias, keystore_path, password, csr_output_path);
     
     print_info_fmt("[DEBUG] Executing: %s", cmd);
 
     int status = system(cmd);
     if (status != 0) {
         print_error("CSR generation failed");
-        unlink(temp_file_path);
-        free(temp_file_path);
         return -1;
     }
     
     // 读取 CSR
-    FILE *fp = fopen(temp_file_path, "r");
+    FILE *fp = fopen(csr_output_path, "r");
     if (!fp) {
         print_error("Failed to read CSR file");
-        unlink(temp_file_path);
-        free(temp_file_path);
         return -1;
     }
     
@@ -112,9 +97,7 @@ int signing_generate_csr(const char *keystore_path, const char *alias, const cha
     csr_out[total_read] = '\0';
     
     fclose(fp);
-    unlink(temp_file_path);
-    free(temp_file_path);
-    
+
     return 0;
 }
 

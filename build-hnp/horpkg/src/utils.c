@@ -1,20 +1,17 @@
-// --- 修复 (解决 'popen' 和 'usleep' 警告) ---
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
-// --- 修复结束 ---
-
+#include "config.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <unistd.h> // For access() and usleep()
-#include <ctype.h>  // For isspace()
-#include <stdarg.h>  // ← 添加这个头文件
+#include <unistd.h>
+#include <ctype.h>
+#include <stdarg.h>
 
 
-// --- 修复的 trim_whitespace 函数 (增加了日志) ---
 static void trim_whitespace(char *str) {
     print_info("[LOG] trim_whitespace: Entered"); // <-- 新日志
     if (str == NULL) {
@@ -92,6 +89,15 @@ void print_info_fmt(const char *fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
     print_info(buffer);
+}
+
+void print_success_fmt(const char *fmt, ...) {
+    char buffer[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    print_success(buffer);
 }
 
 int create_dir_if_not_exists(const char *path) {
@@ -195,7 +201,6 @@ int hdc_is_connected(void) {
  */
 int hdc_connect_port(const char *port) {
     char command[256];
-    // 假设总是连接到本地
     snprintf(command, sizeof(command), "hdc-lite tconn 127.0.0.1:%s > /dev/null 2>&1", port);
     
     print_info("Executing connection command...");
@@ -205,13 +210,9 @@ int hdc_connect_port(const char *port) {
         return -1;
     }
     
-    // 稍作等待，让连接生效
-    usleep(500000); // 500ms
+    usleep(500000);
     return 0;
 }
-
-
-// --- ↓↓↓↓ 恢复被我误删的函数实现 ↓↓↓↓ ---
 
 /**
  * @brief 通过HDC获取设备UUID (Functional)
@@ -221,7 +222,6 @@ char* hdc_get_uuid(void) {
     FILE *fp;
     char line[256];
     
-    // 执行 'hdc-lite shell bm get --udid'
     fp = popen("hdc-lite shell bm get --udid", "r");
     if (fp == NULL) {
         print_error("Failed to run hdc-lite command");
@@ -231,76 +231,42 @@ char* hdc_get_uuid(void) {
     char* uuid = NULL;
     while (fgets(line, sizeof(line), fp) != NULL) {
         trim_whitespace(line);
-        // 根据您的示例，UUID 是一个 64 个字符的十六进制字符串
         if (strlen(line) == 64) {
-            // 找到了，使用 C11 标准的 malloc + strcpy
             uuid = malloc(strlen(line) + 1); 
             if (uuid) {
                 strcpy(uuid, line);
             }
-            break; // 找到后退出循环
+            break;
         }
     }
     pclose(fp);
     
     return uuid; // 如果没找到，将返回 NULL
 }
-
 /**
  * @brief 检查horpkg是否已初始化 (是否已有UUID，并且UUID是否与当前设备匹配)
  * @return 1 表示已初始化且设备匹配, 0 表示未初始化或设备不匹配
  */
 int is_initialized(void) {
-    char *uuid_path = get_config_path("uuid.conf");
-    if (!uuid_path) {
-        return 0; // 无法获取配置路径
-    }
-    
-    // 1. 检查配置文件是否存在
-    if (access(uuid_path, F_OK) != 0) {
-        print_info("[LOG] is_initialized: uuid.conf not found.");
-        free(uuid_path);
+    if (g_config.device_uuid[0] == '\0') {
+        print_info("[LOG] is_initialized: device_uuid in config is empty.");
         return 0;
     }
-    
-    FILE *fp = fopen(uuid_path, "r");
-    if (!fp) {
-        print_error_fmt("Failed to open %s for reading.", uuid_path);
-        free(uuid_path);
-        return 0;
-    }
-    
-    char stored_uuid[256] = {0};
-    if (fgets(stored_uuid, sizeof(stored_uuid), fp) == NULL) {
-        print_warning("[LOG] is_initialized: uuid.conf is empty.");
-        fclose(fp);
-        free(uuid_path);
-        return 0;
-    }
-    fclose(fp);
-    free(uuid_path);
-    trim_whitespace(stored_uuid);
-    
-    if (strlen(stored_uuid) == 0) {
-        print_warning("[LOG] is_initialized: uuid.conf contains only whitespace.");
-        return 0;
-    }
-    
+
     char* current_uuid = hdc_get_uuid();
     if (current_uuid == NULL) {
         print_info("[LOG] is_initialized: Could not get current UUID from HDC (device disconnected?).");
         return 0; 
     }
 
-    int match = (strcmp(stored_uuid, current_uuid) == 0);
+    int match = (strcmp(g_config.device_uuid, current_uuid) == 0);
     
     if (match) {
         print_info("[LOG] is_initialized: Stored UUID matches current device.");
     } else {
-
         char truncated_stored[11] = {0};
         char truncated_current[11] = {0};
-        strncpy(truncated_stored, stored_uuid, 10);
+        strncpy(truncated_stored, g_config.device_uuid, 10);
         strncpy(truncated_current, current_uuid, 10);
         
         print_warning_fmt("Device mismatch: Initialized for %s..., but current device is %s...", 
@@ -312,30 +278,15 @@ int is_initialized(void) {
     return match;
 }
 
-/**
- * @brief 将UUID存储到配置文件
- * @param uuid 要存储的UUID
- * @return 0 表示成功, -1 表示失败
- */
 int store_uuid(const char* uuid) {
-    char *uuid_path = get_config_path("uuid.conf");
-    if (!uuid_path) {
+    if (!uuid) return -1;
+    
+    strncpy(g_config.device_uuid, uuid, sizeof(g_config.device_uuid) - 1);
+    g_config.device_uuid[sizeof(g_config.device_uuid) - 1] = '\0';
+    
+    if (config_save() != 0) {
+        print_error("Failed to save UUID to config.json");
         return -1;
     }
-
-    FILE *fp = fopen(uuid_path, "w");
-    if (!fp) {
-        char err_msg[256];
-        snprintf(err_msg, sizeof(err_msg), "Failed to create %s", uuid_path);
-        print_error(err_msg);
-        free(uuid_path);
-        return -1;
-    }
-    
-    fprintf(fp, "%s\n", uuid);
-    fclose(fp);
-    
-    free(uuid_path);
     return 0;
 }
-// --- ↑↑↑↑ 恢复结束 ↑↑↑↑ ---

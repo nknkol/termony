@@ -23,7 +23,11 @@ typedef struct {
 
 // 签名相关函数 (修改签名以传入 user)
 int signing_generate_keystore(const char *keystore_path, const char *alias, const char *password);
-int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, char *csr_out, size_t csr_size);
+int signing_generate_csr(const char *keystore_path,
+                         const char *alias,
+                         const char *password, 
+                         const char *csr_output_path,
+                         char *csr_out, size_t csr_size);
 int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *cert);
 int signing_download_cert(const char *object_id, const user_info_t *user, const char *output_path);
 int signing_get_cert_list_and_find(const user_info_t *user, const char *cert_name, cert_info_t *cert_out);
