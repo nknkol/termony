@@ -5,7 +5,7 @@ include ../utils/Makefrag
 REAL_BINARY_NAME = hdc-lite
 SHIM_NAME = hdc-lite
 REAL_BIN_INSTALL_DIR = ../sysroot/horpkgbin
-SHIM_CONFIG_PATH = $(shell pwd)/../shim/config.h
+SHIM_CONFIG_PATH = $(shell pwd)/shim/config.h
 # ---
 
 # --- (已修改) 源码和补丁定义 ---
@@ -49,28 +49,20 @@ all: download/$(HDC_ZIP_FILE) download/$(SECUREC_ZIP_FILE) $(PATCH_FILE) $(MAKEF
 	# $(MAKE) 会自动将 $(CC), $(CXX), $(CFLAGS), $(LDFLAGS) 传递下去
 	$(MAKE) -C temp -f $(MAKEFILE_SIMPLE) all
 	
-	# --- (已修改) 安装步骤 (逻辑与原版 hdc/Makefile 相同) ---
-	
-	# 步骤 1: 安装 *真实的* hdc-lite 到 ../sysroot/horpkgbin/
 	@echo "==> [hdc-lite] Installing real binary to $(REAL_BIN_INSTALL_DIR)/"
 	mkdir -p $(REAL_BIN_INSTALL_DIR)
 	# (产物路径来自 Makefile.simple)
 	cp build/$(REAL_BINARY_NAME) $(REAL_BIN_INSTALL_DIR)/
 	
-	# 步骤 2: 检查 shim 配置文件
+	#///////////////
 	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
 		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \
-		echo "It should be at $(shell pwd)/../shim/config.h" >&2; \
+		echo "Please create 'shim/config.h' inside the '$(shell pwd)' directory." >&2; \
 		exit 1; \
 	fi
-	
-	# 步骤 3: 编译并安装 shim (包装器) 到 ../sysroot/bin/
-	@echo "==> [hdc-lite] Building and installing shim wrapper -> ../sysroot/bin/$(SHIM_NAME)"
+	@echo "==> [hapsigntool] Building and installing shim wrapper -> ../sysroot/bin/$(SHIM_NAME)"
 	$(MAKE) -C ../shim install SHIM_NAME=$(SHIM_NAME) CONFIG_PATH=$(SHIM_CONFIG_PATH)
-
-	@echo "==> [hdc-lite] Build complete."
-	@echo "    Real Binary: $(REAL_BIN_INSTALL_DIR)/$(REAL_BINARY_NAME)"
-	@echo "    Wrapper:     ../sysroot/bin/$(SHIM_NAME)"
+	#///////////////
 
 # --- .stamp 目标 ---
 .stamp: all

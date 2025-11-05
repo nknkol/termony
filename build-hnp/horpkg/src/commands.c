@@ -9,6 +9,7 @@
 #include "auth.h"
 #include "signing.h"
 #include "http.h"
+#include "logger.h" // 确保 logger.h 已包含 (虽然 utils.h 可能已包含)
 
 int download_file(const char *url, const char *outfile);
 char* hdc_get_uuid(void);
@@ -25,33 +26,33 @@ int cmd_init(int argc, char *argv[]) {
 
     // ===== 阶段1: 基础配置 =====
     // (config_load() 已经在 main.c 中调用)
-    print_info("Configuration loaded.");
+    log_info("Configuration loaded.");
     
     // ===== 阶段2: 设备 UUID =====
     // (此处的 is_initialized() 和 store_uuid() 已被重构，使用 g_config)
     if (!is_initialized()) {
-        print_info("Getting device UUID via HDC...");
+        log_info("Getting device UUID via HDC...");
         char* uuid = hdc_get_uuid();
         if (uuid) {
             if (store_uuid(uuid) == 0) { // (现在会保存到 config.json)
-                print_success("Device UUID retrieved and saved:");
+                log_info("Device UUID retrieved and saved:");
                 printf("    UUID: %s\n\n", uuid);
             } else {
-                print_error("Failed to store device UUID.");
+                log_error("Failed to store device UUID.");
                 free(uuid);
                 return 1;
             }
             free(uuid);
         } else {
-            print_error("Failed to get device UUID via HDC.");
+            log_error("Failed to get device UUID via HDC.");
             return 1;
         }
     } else {
-        print_info("Device UUID already registered.\n");
+        log_info("Device UUID already registered.\n");
     }
     
     // ===== 阶段3: 华为账号认证 =====
-    print_info("Step 1: Huawei Developer Account Authentication");
+    log_info("Step 1: Huawei Developer Account Authentication");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
     user_info_t user = {0};
@@ -69,12 +70,12 @@ int cmd_init(int argc, char *argv[]) {
         config_apply_auth_to_user(&user);
         
         if (auth_get_access_token_from_jwt(&user) == 0) {
-            print_success("API 2.2 (DevEco) check OK.");
-            print_info("Verifying token against AGC service (device-list)...");
+            log_info("API 2.2 (DevEco) check OK.");
+            log_info("Verifying token against AGC service (device-list)...");
 
             // (使用 API 4.1 获取设备列表作为验证)
             if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) == 0) {
-                print_success("Using existing authentication");
+                log_info("Using existing authentication");
                 printf("    User: %s (%s)\n", user.nickname, user.user_id);
                 printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
                 need_re_auth = 0;
@@ -84,11 +85,11 @@ int cmd_init(int argc, char *argv[]) {
                 config_update_auth_from_user(&user);
                 
             } else {
-                print_warning("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
+                log_warn("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
                 memset(&user, 0, sizeof(user));
             }
         } else {
-            print_warning("Existing token invalid (DevEco check failed), re-authenticating...\n");
+            log_warn("Existing token invalid (DevEco check failed), re-authenticating...\n");
             memset(&user, 0, sizeof(user));
         }
     }
@@ -98,7 +99,7 @@ int cmd_init(int argc, char *argv[]) {
             return 1;
         }
         
-        print_success("Authentication successful!");
+        log_info("Authentication successful!");
         printf("    User: %s (%s)\n", user.nickname, user.user_id);
         printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
         
@@ -109,12 +110,12 @@ int cmd_init(int argc, char *argv[]) {
     
     // (统一保存)
     if (config_save() != 0) {
-        print_warning("Failed to save authentication token to config.json.");
+        log_warn("Failed to save authentication token to config.json.");
     }
     
     
     // ===== 阶段 4: 生成密钥和证书 (Robust Logic) =====
-    print_info("Step 2: Signing Key & Certificate Setup");
+    log_info("Step 2: Signing Key & Certificate Setup");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
     char *keystore_path = get_config_path("horpkg.p12");
@@ -145,7 +146,7 @@ int cmd_init(int argc, char *argv[]) {
     int cloud_cert_exists = (signing_get_cert_list_and_find(&user, cert_name_to_find, &cloud_cert) == 0);
     if (!cloud_cert_exists) {
         // 如果没找到新版名称，尝试查找旧版 "horpkg"
-        print_info("Checking for legacy 'horpkg' certificate name...");
+        log_info("Checking for legacy 'horpkg' certificate name...");
         cloud_cert_exists = (signing_get_cert_list_and_find(&user, "horpkg", &cloud_cert) == 0);
     }
     
@@ -155,15 +156,15 @@ int cmd_init(int argc, char *argv[]) {
         if (local_id_exists) {
             if (!cloud_cert_exists) {
                 // 场景 1: 本地有签名、ID，云端无签名
-                print_warning("Local P12 and ID exist, but no matching certificate found on cloud.");
-                print_info("Using local P12 (keystore) to request a new certificate.");
+                log_warn("Local P12 and ID exist, but no matching certificate found on cloud.");
+                log_info("Using local P12 (keystore) to request a new certificate.");
                 needs_csr_request = 1; // (P12 exists, no new P12 needed)
             } else {
                 // (隐式场景): 本地有 P12, 本地有 ID, 云端有 ID
                 if (strcmp(local_cert.id, cloud_cert.id) != 0) {
-                    print_warning("Local cert ID does not match cloud cert ID. Using cloud version.");
+                    log_warn("Local cert ID does not match cloud cert ID. Using cloud version.");
                 }
-                print_success("Local P12 and Cloud certificate are in sync.");
+                log_info("Local P12 and Cloud certificate are in sync.");
                 local_cert = cloud_cert; // 确保 local_cert 持有云端的有效数据
                 needs_csr_request = 0;
                 needs_p12_generation = 0;
@@ -171,32 +172,32 @@ int cmd_init(int argc, char *argv[]) {
         } else { // (local_p12_exists && !local_id_exists)
             if (!cloud_cert_exists) {
                 // 场景 2: 本地有签名、无ID，云端无签名
-                print_warning("Local P12 exists, but no local ID or cloud certificate found.");
-                print_info("Using local P12 (keystore) to request a new certificate.");
+                log_warn("Local P12 exists, but no local ID or cloud certificate found.");
+                log_info("Using local P12 (keystore) to request a new certificate.");
                 needs_csr_request = 1;
             } else {
                 // 场景 3: 本地有签名、无ID，云端有签名
-                print_success("Local P12 exists, local ID was missing.");
-                print_success("Successfully recovered certificate ID from cloud.");
+                log_info("Local P12 exists, local ID was missing.");
+                log_info("Successfully recovered certificate ID from cloud.");
                 local_cert = cloud_cert; // 恢复 ID
                 needs_csr_request = 0;
             }
         }
     } else { // (!local_p12_exists)
         // 场景 4: 本地无签名
-        print_warning("Local P12 keystore ('horpkg.p12') not found.");
+        log_warn("Local P12 keystore ('horpkg.p12') not found.");
         if (cloud_cert_exists) {
             // "如果云端有签名就删除"
-            print_warning_fmt("Found an existing certificate ('%s') on cloud without a local P12.", cloud_cert.name);
-            print_info("Deleting cloud certificate to ensure consistency... (API 4)");
+            log_warn("Found an existing certificate ('%s') on cloud without a local P12.", cloud_cert.name);
+            log_info("Deleting cloud certificate to ensure consistency... (API 4)");
             if (signing_delete_cert(&user, cloud_cert.id) != 0) {
-                print_error("Failed to delete existing cloud certificate. Please delete it manually via AGConnect.");
+                log_error("Failed to delete existing cloud certificate. Please delete it manually via AGConnect.");
                 free(keystore_path); free(cert_path);
                 return 1; 
             }
         }
         // "本地重新生成P12、CSR申请签名"
-        print_info("Generating new P12 keystore...");
+        log_info("Generating new P12 keystore...");
         needs_p12_generation = 1;
         needs_csr_request = 1;
     }
@@ -204,59 +205,59 @@ int cmd_init(int argc, char *argv[]) {
     // --- 5. 执行操作 (生成/请求) ---
     if (needs_p12_generation) {
         if (signing_generate_keystore(keystore_path, "horpkg", "horpkg") != 0) {
-            print_error("Failed to generate keystore");
+            log_error("Failed to generate keystore");
             free(keystore_path); free(cert_path); free(csr_path);
             return 1;
         }
-        print_success("Keystore created.\n");
+        log_info("Keystore created.\n");
     }
     
     if (needs_csr_request) {
-        print_info("Generating CSR from keystore...");
+        log_info("Generating CSR from keystore...");
         char csr[4096];
         
         if (signing_generate_csr(keystore_path, "horpkg", "horpkg", csr_path, csr, sizeof(csr)) != 0) {
-            print_error("Failed to generate CSR");
+            log_error("Failed to generate CSR");
             free(keystore_path); free(cert_path); free(csr_path);
             return 1;
         }
-        print_success_fmt("CSR generated and saved to: %s\n", csr_path);
+        log_info("CSR generated and saved to: %s\n", csr_path);
         
-        print_info("Requesting certificate from Huawei Cloud (API 5)...");
+        log_info("Requesting certificate from Huawei Cloud (API 5)...");
         if (signing_request_cert(&user, csr, &local_cert) != 0) {
-            print_error("Failed to request certificate");
+            log_error("Failed to request certificate");
             free(keystore_path); free(cert_path); free(csr_path);
             return 1;
         }
-        print_success("Certificate created:");
+        log_info("Certificate created:");
         printf("    ID: %s\n\n", local_cert.id);
         
-        print_info("Downloading certificate (API 6.1)...");
+        log_info("Downloading certificate (API 6.1)...");
         if (signing_download_cert(local_cert.object_id, &user, cert_path) != 0) {
-            print_error("Failed to download certificate");
+            log_error("Failed to download certificate");
             free(keystore_path); free(cert_path); free(csr_path);
             return 1;
         }
-        print_success_fmt("Certificate downloaded and saved to: %s\n", cert_path);
+        log_info("Certificate downloaded and saved to: %s\n", cert_path);
     } 
     
     else if (cloud_cert_exists && access(cert_path, F_OK) != 0) {
-        print_warning("Local .cer file is missing. Downloading existing cloud certificate...");
+        log_warn("Local .cer file is missing. Downloading existing cloud certificate...");
         if (signing_download_cert(cloud_cert.object_id, &user, cert_path) != 0) {
-            print_error("Failed to download existing certificate.");
+            log_error("Failed to download existing certificate.");
         } else {
-            print_success_fmt("Certificate downloaded and saved to: %s\n", cert_path);
+            log_info("Certificate downloaded and saved to: %s\n", cert_path);
         }
     }
     if (!needs_csr_request && local_p12_exists && access(csr_path, F_OK) != 0) {
-        print_warning("Local .csr file is missing. Re-generating from existing keystore...");
+        log_warn("Local .csr file is missing. Re-generating from existing keystore...");
         char csr_buffer_temp[4096]; 
         
         if (signing_generate_csr(keystore_path, "horpkg", "horpkg", 
                                  csr_path, csr_buffer_temp, sizeof(csr_buffer_temp)) != 0) {
-            print_error("Failed to re-generate CSR.");
+            log_error("Failed to re-generate CSR.");
         } else {
-            print_success_fmt("CSR successfully re-generated and saved to: %s\n", csr_path);
+            log_info("CSR successfully re-generated and saved to: %s\n", csr_path);
         }
     }
     // --- 6. 保存状态 ---
@@ -264,11 +265,11 @@ int cmd_init(int argc, char *argv[]) {
     if (local_cert.id[0] != '\0') {
         strncpy(g_config.cert_id, local_cert.id, sizeof(g_config.cert_id) - 1);
         if (config_save() != 0) {
-            print_warning("Failed to write/update cert_id in config.json");
+            log_warn("Failed to write/update cert_id in config.json");
         }
     } else {
         // (如果执行到这里 local_cert.id 仍然为空，说明逻辑有严重错误)
-        print_error("FATAL: Certificate ID is still empty after Step 2.");
+        log_error("FATAL: Certificate ID is still empty after Step 2.");
         free(keystore_path); free(cert_path);
         return 1;
     }
@@ -278,31 +279,31 @@ int cmd_init(int argc, char *argv[]) {
     free(csr_path);
 
     // ===== 阶段 5: 配置 Provision =====
-    print_info("Step 3: Provision Configuration");
+    log_info("Step 3: Provision Configuration");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
     // 检查是否已在认证阶段获取了设备列表
     if (!device_list_ok) {
-        print_info("Getting device list (with new token)...");
+        log_info("Getting device list (with new token)...");
         if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) != 0) {
-            print_error("Failed to get device list even after re-authentication.");
+            log_error("Failed to get device list even after re-authentication.");
             return 1;
         }
     }
     
     if (device_count == 0) {
-        print_warning("No devices registered in Huawei Cloud");
+        log_warn("No devices registered in Huawei Cloud");
         print_prompt("Please register your device first at:");
         printf("    https://developer.huawei.com\n\n");
     } else {
-        print_success("Found devices:");
+        log_info("Found devices:");
         for (int i = 0; i < device_count; i++) {
             printf("    ├─ %s\n", device_names[i]);
         }
         printf("\n");
         
         // 为核心包创建 Provision
-        print_info("Creating provision for org.horpkg.core (API 7)...");
+        log_info("Creating provision for org.horpkg.core (API 7)...");
         provision_info_t provision = {0};
         
         const char *profile_bundle_name = "org.horpkg.core";
@@ -310,7 +311,7 @@ int cmd_init(int argc, char *argv[]) {
         // (使用 local_cert，它现在保证持有有效的 ID)
         if (signing_create_provision(&user, &local_cert, (const char**)device_ids, device_count,
                                      profile_bundle_name, &provision) != 0) {
-            print_error("Failed to create provision");
+            log_error("Failed to create provision");
             print_prompt("This may be because your 'horpkg' cert on the cloud is invalid.");
             print_prompt("Try deleting '~/.horpkg/horpkg.p12', '~/.horpkg/cert_id.conf' and run 'init' again.");
 
@@ -325,7 +326,7 @@ int cmd_init(int argc, char *argv[]) {
             // 3. 使用 get_config_path 获取最终保存路径 (e.g., ~/.horpkg/org.horpkg.core.p7b)
             char *provision_path = get_config_path(profile_filename);
             if (!provision_path) {
-                 print_error("Failed to get config path for provision file.");
+                 log_error("Failed to get config path for provision file.");
                  // (清理)
                 if (device_ids) {
                     for (int i = 0; i < device_count; i++) {
@@ -338,19 +339,19 @@ int cmd_init(int argc, char *argv[]) {
                  return 1;
             }
             
-            print_info_fmt("Downloading provision for %s (API 6.1)...", profile_bundle_name);
+            log_info("Downloading provision for %s (API 6.1)...", profile_bundle_name);
             
             // 4. 下载到指定的路径
             if (signing_download_provision(&user, provision.url, provision_path) == 0) {
                 if (access(provision_path, F_OK) == 0) {
-                    print_success("Provision created and downloaded.");
+                    log_info("Provision created and downloaded.");
                     printf("    Saved to: %s\n\n", provision_path);
                 } else {
-                    print_error_fmt("File download reported success, but file is missing at: %s", provision_path);
-                    print_error("This might be a temporary cloud issue or a filesystem error.");
+                    log_error("File download reported success, but file is missing at: %s", provision_path);
+                    log_error("This might be a temporary cloud issue or a filesystem error.");
                 }
             } else {
-                print_error_fmt("Failed to download provision file to %s.", provision_path);
+                log_error("Failed to download provision file to %s.", provision_path);
             }
             
             free(provision_path);
@@ -390,14 +391,14 @@ int cmd_init(int argc, char *argv[]) {
 
 int cmd_install(int argc, char *argv[]) {
     if (argc < 1) {
-        print_error("Package name required");
+        log_error("Package name required");
         printf("Usage: horpkg install <package>\n");
         return 1;
     }
 
     // --- NEW: 检查初始化 (使用重构后的 is_initialized) ---
     if (!is_initialized()) {
-        print_error("Horpkg not initialized.");
+        log_error("Horpkg not initialized.");
         print_prompt("Please run 'horpkg init' first to register your device.");
         return 1;
     }
@@ -409,14 +410,14 @@ int cmd_install(int argc, char *argv[]) {
            COLOR_BLUE, COLOR_RESET, COLOR_BOLD, package_name, COLOR_RESET);
 
     // --- (重构: 从 g_config 读取镜像) ---
-    print_info("Reading repository configuration...");
+    log_info("Reading repository configuration...");
     if (g_config.primary_mirror.url[0] == '\0') {
-        print_error("Mirror URL not configured. Please run 'horpkg init'.");
+        log_error("Mirror URL not configured. Please run 'horpkg init'.");
         return 1;
     }
     
     const char *mirror_url = g_config.primary_mirror.url;
-    print_success("Using mirror:");
+    log_info("Using mirror:");
     printf("    %s\n\n", mirror_url);
     
     // --- ↓↓↓↓↓↓ 核心修改区域 (开始) ↓↓↓↓↓↓ ---
@@ -437,9 +438,9 @@ int cmd_install(int argc, char *argv[]) {
     snprintf(package_json_temp_path, sizeof(package_json_temp_path), "%s/%s.json", tmp_dir, package_name);
     free(tmp_dir); // 释放内存
 
-    print_info("Fetching package metadata...");
+    log_info("Fetching package metadata...");
     if (download_file(package_json_url, package_json_temp_path) != 0) {
-        print_error("Failed to download package metadata.");
+        log_error("Failed to download package metadata.");
         free(cache_dir);
         return 1;
     }
@@ -449,7 +450,7 @@ int cmd_install(int argc, char *argv[]) {
     yyjson_doc *pkg_doc = yyjson_read_file(package_json_temp_path, flg, NULL, NULL);
     unlink(package_json_temp_path); // 删除临时元数据文件
     if (!pkg_doc) {
-        print_error("Failed to parse package metadata.");
+        log_error("Failed to parse package metadata.");
         free(cache_dir);
         return 1;
     }
@@ -469,21 +470,21 @@ int cmd_install(int argc, char *argv[]) {
     // --- ↑↑↑↑↑↑ 核心修改区域 (结束) ↑↑↑↑↑↑ ---
     
     // 7. 执行下载
-    print_info("Downloading package...");
+    log_info("Downloading package...");
     if (download_file(hnp_url, out_filename) != 0) {
-        print_error("Download failed.");
+        log_error("Download failed.");
         yyjson_doc_free(pkg_doc);
         return 1;
     }
-    print_success("Download complete.");
+    log_info("Download complete.");
 
     // 8. 后续步骤
-    print_info("Verifying SHA256...");
+    log_info("Verifying SHA256...");
     // TODO: 实现SHA256校验逻辑
-    print_success("Checksum verified");
+    log_info("Checksum verified");
 
-    print_info("Installing...");
-    print_success("Package installed successfully");
+    log_info("Installing...");
+    log_info("Package installed successfully");
 
     printf("\n%s🎉 Installation complete!%s\n", COLOR_GREEN, COLOR_RESET);
     
@@ -495,7 +496,7 @@ int cmd_install(int argc, char *argv[]) {
 
 int cmd_remove(int argc, char *argv[]) {
     if (argc < 1) {
-        print_error("Package name required");
+        log_error("Package name required");
         printf("Usage: horpkg remove <package>\n");
         return 1;
     }
@@ -506,11 +507,11 @@ int cmd_remove(int argc, char *argv[]) {
            COLOR_YELLOW, COLOR_RESET, COLOR_BOLD, package, COLOR_RESET);
     printf("\n");
     
-    print_info("Checking dependencies...");
-    print_warning("No packages depend on this package");
+    log_info("Checking dependencies...");
+    log_warn("No packages depend on this package");
     
-    print_info("Uninstalling...");
-    print_success("Package removed successfully");
+    log_info("Uninstalling...");
+    log_info("Package removed successfully");
     
     printf("\n");
     return 0;
@@ -518,20 +519,20 @@ int cmd_remove(int argc, char *argv[]) {
 
 int cmd_update(int argc, char *argv[]) {
     if (argc < 1) {
-        print_error("Package name required");
+        log_error("Package name required");
         printf("Usage: horpkg update <package>\n");
         return 1;
     }
     
     const char *package = argv[0];
     printf("\n");
-    print_info("Checking for updates...");
+    log_info("Checking for updates...");
     printf("Current version: 1.0.0\n");
     printf("Latest version:  1.1.0\n");
     printf("\n");
     
     printf("%s→%s Updating %s...\n", COLOR_BLUE, COLOR_RESET, package);
-    print_success("Update complete");
+    log_info("Update complete");
     printf("\n");
     
     return 0;
@@ -558,7 +559,7 @@ int cmd_list(int argc, char *argv[]) {
 
 int cmd_search(int argc, char *argv[]) {
     if (argc < 1) {
-        print_error("Search term required");
+        log_error("Search term required");
         printf("Usage: horpkg search <keyword>\n");
         return 1;
     }
@@ -588,7 +589,7 @@ int cmd_search(int argc, char *argv[]) {
 
 int cmd_info(int argc, char *argv[]) {
     if (argc < 1) {
-        print_error("Package name required");
+        log_error("Package name required");
         printf("Usage: horpkg info <package>\n");
         return 1;
     }
@@ -630,8 +631,8 @@ int cmd_info(int argc, char *argv[]) {
 
 int cmd_sync(int argc, char *argv[]) {
     printf("\n");
-    print_info("Syncing package repository...");
-    print_success("Repository index updated");
+    log_info("Syncing package repository...");
+    log_info("Repository index updated");
     printf("Available packages: 156\n");
     printf("\n");
     
@@ -640,9 +641,9 @@ int cmd_sync(int argc, char *argv[]) {
 
 int cmd_clean(int argc, char *argv[]) {
     printf("\n");
-    print_info("Cleaning cache...");
-    print_success("Build cache cleared (250 MB freed)");
-    print_success("Download cache cleared (180 MB freed)");
+    log_info("Cleaning cache...");
+    log_info("Build cache cleared (250 MB freed)");
+    log_info("Download cache cleared (180 MB freed)");
     printf("Total freed: 430 MB\n");
     printf("\n");
     
@@ -673,7 +674,7 @@ int cmd_config(int argc, char *argv[]) {
     const char *action = argv[0];
     
     if (argc < 2) {
-        print_error("Key required for 'get' or 'set'");
+        log_error("Key required for 'get' or 'set'");
         return 1;
     }
     const char *key = argv[1];
@@ -692,11 +693,11 @@ int cmd_config(int argc, char *argv[]) {
         } else if (strcmp(key, "settings.parallel_jobs") == 0) {
             printf("%d\n", g_config.parallel_jobs);
         } else {
-            print_error_fmt("Unknown config key: %s", key);
+            log_error("Unknown config key: %s", key);
         }
     } else if (strcmp(action, "set") == 0) {
         if (argc < 3) {
-            print_error("Value required");
+            log_error("Value required");
             return 1;
         }
         const char *value = argv[2];
@@ -716,21 +717,21 @@ int cmd_config(int argc, char *argv[]) {
             if (g_config.parallel_jobs == 0) g_config.parallel_jobs = 4; // 简单校验
             updated = 1;
         } else {
-            print_error_fmt("Unknown or read-only config key: %s", key);
-            print_info("Settable keys: mirror.url, mirror.name, settings.default_mode, settings.parallel_jobs");
+            log_error("Unknown or read-only config key: %s", key);
+            log_info("Settable keys: mirror.url, mirror.name, settings.default_mode, settings.parallel_jobs");
             return 1;
         }
         
         if (updated) {
             if (config_save() == 0) {
-                print_success("Configuration updated");
+                log_info("Configuration updated");
                 printf("  %s = %s\n", key, value);
             } else {
-                print_error("Failed to save configuration");
+                log_error("Failed to save configuration");
             }
         }
     } else {
-         print_error_fmt("Unknown action: %s. Use 'get' or 'set'.", action);
+         log_error("Unknown action: %s. Use 'get' or 'set'.", action);
     }
     
     return 0;
