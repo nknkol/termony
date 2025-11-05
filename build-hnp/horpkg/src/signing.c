@@ -9,6 +9,7 @@
 #include <unistd.h>     // 添加：提供 mkstemp, close, unlink
 #include <yyjson.h>
 #include <errno.h>
+#include <time.h>
 
 #define API_BASE "https://connect-api.cloud.huawei.com"
 
@@ -114,6 +115,144 @@ int signing_generate_csr(const char *keystore_path, const char *alias, const cha
     unlink(temp_file_path);
     free(temp_file_path);
     
+    return 0;
+}
+
+/**
+ * @brief 调用 API 3 (获取证书列表) 并查找特定名称的有效证书
+ * @param user 已认证的用户
+ * @param cert_name 要查找的证书名称 (例如 "horpkg")
+ * @param cert_out [输出] 用于填充找到的证书信息的结构体
+ * @return 0 表示成功找到, -1 表示未找到或出错
+ */
+int signing_get_cert_list_and_find(const user_info_t *user, const char *cert_name, cert_info_t *cert_out) {
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/cps/harmony-cert-manage/v1/cert/list", API_BASE);
+    
+    print_info("API 3: Checking cloud certificate list...");
+    
+    // API 3 (Get Cert List) 使用 POST 和 form-urlencoded，但请求体为空
+    // (参考 DevEco_Login_API_Documentation.md)
+    http_response_t *resp = http_post_authed(url, user, NULL, 
+                                           "application/x-www-form-urlencoded; charset=UTF-8");
+    
+    if (!resp || resp->status_code != 200) {
+        print_error("Failed to get certificate list (API 3)");
+        http_response_free(resp);
+        return -1;
+    }
+
+    yyjson_doc *doc = yyjson_read(resp->data, resp->size, 0);
+    http_response_free(resp);
+
+    if (!doc) {
+        print_error("Failed to parse certificate list response (API 3)");
+        return -1;
+    }
+
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *ret = yyjson_obj_get(root, "ret");
+    if (!ret || yyjson_get_int(yyjson_obj_get(ret, "code")) != 0) {
+        print_error_fmt("Certificate list API returned an error: %s", 
+                      yyjson_get_str(yyjson_obj_get(ret, "msg")));
+        yyjson_doc_free(doc);
+        return -1;
+    }
+
+    yyjson_val *cert_list = yyjson_obj_get(root, "certList");
+    if (!cert_list || !yyjson_is_arr(cert_list)) {
+        print_warning("No 'certList' array in response. (No certificates on cloud)");
+        yyjson_doc_free(doc);
+        return -1; // 没有列表
+    }
+
+    size_t idx, max;
+    yyjson_val *cert_json;
+    // 获取当前时间的毫秒数
+    long long current_time_ms = (long long)time(NULL) * 1000;
+
+    yyjson_arr_foreach(cert_list, idx, max, cert_json) {
+        const char *name = yyjson_get_str(yyjson_obj_get(cert_json, "certName"));
+        
+        if (name && strcmp(name, cert_name) == 0) {
+            // 找到了同名证书，检查其有效性
+            int status = yyjson_get_int(yyjson_obj_get(cert_json, "status"));
+            long long expire_time_ms = yyjson_get_uint(yyjson_obj_get(cert_json, "expireTime"));
+
+            if (status == 1 && expire_time_ms > current_time_ms) {
+                // 找到了一个有效的、未过期的证书！
+                print_info("Found valid, non-expired certificate on cloud.");
+                
+                const char *id = yyjson_get_str(yyjson_obj_get(cert_json, "id"));
+                const char *object_id = yyjson_get_str(yyjson_obj_get(cert_json, "certObjectId"));
+                
+                if (id) strncpy(cert_out->id, id, sizeof(cert_out->id) - 1);
+                if (name) strncpy(cert_out->name, name, sizeof(cert_out->name) - 1);
+                if (object_id) strncpy(cert_out->object_id, object_id, sizeof(cert_out->object_id) - 1);
+                
+                yyjson_doc_free(doc);
+                return 0; // 成功找到！
+            } else {
+                print_warning_fmt("Found matching cert '%s', but it is invalid (Status: %d) or expired.", name, status);
+            }
+        }
+    }
+
+    // 循环结束，未找到匹配的有效证书
+    print_info("No valid certificate matching 'horpkg' found on cloud.");
+    yyjson_doc_free(doc);
+    return -1; // 未找到
+}
+
+/**
+ * @brief 删除证书 (API 3.2)
+ * @param user 已认证的用户
+ * @param cert_id 要删除的证书ID
+ * @return 0 成功, -1 失败
+ */
+int signing_delete_cert(const user_info_t *user, const char *cert_id) {
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/cps/harmony-cert-manage/v1/cert/delete", API_BASE);
+    
+    // 构建 JSON 请求体 (API 3.2 需要 JSON)
+    char post_data[256];
+    snprintf(post_data, sizeof(post_data),
+             "{\"certIds\":[\"%s\"]}",
+             cert_id);
+    
+    print_info_fmt("API 4: Deleting certificate (ID: %s)...", cert_id);
+    
+    // 调用我们新创建的 http_delete_authed 函数
+    http_response_t *resp = http_delete_authed(url, user, post_data, "application/json");
+    
+    if (!resp || resp->status_code != 200) {
+        print_error("Failed to delete certificate (HTTP error)");
+        http_response_free(resp);
+        return -1;
+    }
+    
+    // 解析响应
+    yyjson_doc *doc = yyjson_read(resp->data, resp->size, 0);
+    http_response_free(resp);
+    
+    if (!doc) {
+        print_error("Failed to parse delete certificate response");
+        return -1;
+    }
+    
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *ret = yyjson_obj_get(root, "ret");
+    int code = yyjson_get_int(yyjson_obj_get(ret, "code"));
+    
+    if (code != 0) {
+        print_error_fmt("Certificate deletion failed (API code %d): %s", 
+                      code, yyjson_get_str(yyjson_obj_get(ret, "msg")));
+        yyjson_doc_free(doc);
+        return -1;
+    }
+    
+    print_success("Certificate deleted successfully.");
+    yyjson_doc_free(doc);
     return 0;
 }
 

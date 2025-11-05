@@ -26,6 +26,8 @@ int signing_generate_keystore(const char *keystore_path, const char *alias, cons
 int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, char *csr_out, size_t csr_size);
 int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *cert);
 int signing_download_cert(const char *object_id, const user_info_t *user, const char *output_path);
+int signing_get_cert_list_and_find(const user_info_t *user, const char *cert_name, cert_info_t *cert_out);
+int signing_delete_cert(const user_info_t *user, const char *cert_id);
 // int signing_import_cert(const char *keystore_path, const char *alias, const char *password, const char *cert_path);
 // Provision 相关函数 (修改签名以传入 user)
 int signing_create_provision(const user_info_t *user, const cert_info_t *cert, const char **device_ids, int device_count, const char *bundle_name, provision_info_t *provision);

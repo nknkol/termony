@@ -183,6 +183,79 @@ http_response_t* http_get_authed(const char *url, const struct user_info_s *user
     return response;
 }
 
+/**
+ * @brief [新增] 发送一个带认证的 HTTP DELETE 请求
+ */
+http_response_t* http_delete_authed(const char *url, const struct user_info_s *user, const char *data, const char *content_type) {
+    CURL *curl;
+    CURLcode res;
+    
+    http_response_t *response = malloc(sizeof(http_response_t));
+    response->data = malloc(1);
+    response->size = 0;
+    response->status_code = 0;
+    
+    curl = curl_easy_init();
+    if (!curl) {
+        free(response->data);
+        free(response);
+        return NULL;
+    }
+    
+    // (复用 build_authed_headers 来构建认证头)
+    struct curl_slist *headers = build_authed_headers(user, content_type, 1);
+    if (!headers) {
+        curl_easy_cleanup(curl);
+        free(response->data);
+        free(response);
+        return NULL;
+    }
+    
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    // --- [关键] 设置请求方法为 DELETE ---
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+    if (data) {
+        // (DELETE 请求也可以携带 body)
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    }
+    
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
+    
+    // (设置 CA 路径)
+    const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+    res = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
+    
+    // (Debug 输出)
+    printf("\n[DEBUG] === HTTP Response Body (DELETE: %s) ===\n", url);
+    if (response->data && response->size > 0) {
+        printf("%s\n", response->data);
+    } else {
+        printf("(No data received)\n");
+    }
+    printf("[DEBUG] === End of Response (HTTP %ld) ===\n\n", response->status_code);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    
+    if (res != CURLE_OK) {
+        print_error_fmt("[HTTP] http_delete_authed failed: %s", curl_easy_strerror(res));
+        free(response->data);
+        free(response);
+        return NULL;
+    }
+    
+    return response;
+}
+
 http_response_t* http_post_authed(const char *url, const struct user_info_s *user, const char *data, const char *content_type) {
     CURL *curl;
     CURLcode res;
@@ -209,7 +282,12 @@ http_response_t* http_post_authed(const char *url, const struct user_info_s *use
     
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    // curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    if (data) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
     

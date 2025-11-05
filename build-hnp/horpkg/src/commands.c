@@ -62,6 +62,9 @@ int ensure_config_exists() {
     return 0;
 }
 
+/**
+ * 核心初始化函数 (包含高级容错逻辑)
+ */
 int cmd_init(int argc, char *argv[]) {
     printf("\n%s╔════════════════════════════════════════╗%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s║  Horpkg Initialization                 ║%s\n", COLOR_CYAN, COLOR_RESET);
@@ -95,7 +98,7 @@ int cmd_init(int argc, char *argv[]) {
         print_info("Device UUID already registered.\n");
     }
     
-    // ===== 阶段3: 华为账号认证 (已修复逻辑) =====
+    // ===== 阶段3: 华为账号认证 =====
     print_info("Step 1: Huawei Developer Account Authentication");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
@@ -105,7 +108,6 @@ int cmd_init(int argc, char *argv[]) {
     int need_re_auth = 1;     // 默认需要重新认证
     int device_list_ok = 0;   // 标记设备列表是否已获取
     
-    // -- [新增] 为C89兼容性，在块开头声明变量 --
     char **device_ids = NULL;
     char **device_names = NULL;
     int device_count = 0;
@@ -113,39 +115,31 @@ int cmd_init(int argc, char *argv[]) {
     FILE *fp = fopen(config_token_path, "r");
     if (fp) {
         if (fgets(user.jwt_token, sizeof(user.jwt_token), fp)) {
-            size_t len = strlen(user.jwt_token);
-            if (len > 0 && user.jwt_token[len-1] == '\n') {
-                user.jwt_token[len-1] = '\0';
-            }
+            user.jwt_token[strcspn(user.jwt_token, "\n")] = 0;
             
-            // 1. 尝试用 JWT 换 AccessToken (DevEco 检查)
             if (auth_get_access_token_from_jwt(&user) == 0) {
                 print_success("API 2.2 (DevEco) check OK.");
                 print_info("Verifying token against AGC service (device-list)...");
 
-                // 2. [关键] 立即尝试调用 AGC API (device-list) 作为验证
-                //    (这假设 http.c 修复 已经应用)
+                // (使用 API 4.1 获取设备列表作为验证)
                 if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) == 0) {
-                    // 验证成功！
                     print_success("Using existing authentication");
                     printf("    User: %s (%s)\n", user.nickname, user.user_id);
                     printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
-                    need_re_auth = 0;   // 不需要重新认证
-                    device_list_ok = 1; // 设备列表已获取
+                    need_re_auth = 0;
+                    device_list_ok = 1;
                 } else {
-                    // 验证失败 (401)
                     print_warning("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
-                    memset(&user, 0, sizeof(user)); // 清除旧 token
+                    memset(&user, 0, sizeof(user));
                 }
             } else {
                 print_warning("Existing token invalid (DevEco check failed), re-authenticating...\n");
-                memset(&user, 0, sizeof(user)); // 清除旧 token
+                memset(&user, 0, sizeof(user));
             }
         }
         if (fp) fclose(fp);
     }
     
-    // 3. 如果需要（包括验证失败或首次运行），执行完整浏览器认证
     if (need_re_auth) {
         if (auth_init_oauth(&user) != 0) {
             free(config_token_path);
@@ -156,7 +150,6 @@ int cmd_init(int argc, char *argv[]) {
         printf("    User: %s (%s)\n", user.nickname, user.user_id);
         printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
         
-        // 4. 保存新 token
         fp = fopen(config_token_path, "w");
         if (fp) {
             fprintf(fp, "%s\n", user.jwt_token);
@@ -165,87 +158,165 @@ int cmd_init(int argc, char *argv[]) {
     }
     free(config_token_path);
     
-    // ===== 阶段4: 生成密钥和证书 =====
+    
+    // ===== 阶段 4: 生成密钥和证书 (Robust Logic) =====
     print_info("Step 2: Signing Key & Certificate Setup");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
     char *keystore_path = get_config_path("horpkg.p12");
     char *cert_path = get_config_path("horpkg.cer");
-    cert_info_t cert = {0};
+    char *cert_id_path = get_config_path("cert_id.conf");
     
-    // 检查密钥库是否已存在
-    if (access(keystore_path, F_OK) == 0) {
-        print_info("Keystore already exists, skipping generation.\n");
-        
-        // 尝试加载已有的证书 ID
-        char *cert_id_path = get_config_path("cert_id.conf");
-        fp = fopen(cert_id_path, "r");
-        if (fp) {
-            fgets(cert.id, sizeof(cert.id), fp);
-            // 去除换行符
-            size_t len = strlen(cert.id);
-            if (len > 0 && cert.id[len-1] == '\n') {
-                cert.id[len-1] = '\0';
-            }
-            fclose(fp);
+    // local_cert 跟踪本地状态, cloud_cert 跟踪云端状态
+    cert_info_t cloud_cert = {0}; 
+    cert_info_t local_cert = {0}; 
+    
+    int needs_p12_generation = 0;
+    int needs_csr_request = 0;
+    
+    // 1. 检查本地 P12 (Keystore)
+    int local_p12_exists = (access(keystore_path, F_OK) == 0);
+    
+    // 2. 检查本地 ID (cert_id.conf)
+    fp = fopen(cert_id_path, "r");
+    if (fp) {
+        if(fgets(local_cert.id, sizeof(local_cert.id), fp)) {
+            local_cert.id[strcspn(local_cert.id, "\n")] = 0; // 移除换行符
         }
-        free(cert_id_path);
-    } else {
-        print_info("Generating keystore...");
+        fclose(fp);
+    }
+    int local_id_exists = (local_cert.id[0] != '\0');
+
+    // 3. 检查云端证书 (API 3)
+    // (构建我们期望的证书名称)
+    char cert_name_to_find[128];
+    snprintf(cert_name_to_find, sizeof(cert_name_to_find), "horpkg_auto_%s.cer", user.user_id);
+    
+    int cloud_cert_exists = (signing_get_cert_list_and_find(&user, cert_name_to_find, &cloud_cert) == 0);
+    if (!cloud_cert_exists) {
+        // 如果没找到新版名称，尝试查找旧版 "horpkg"
+        print_info("Checking for legacy 'horpkg' certificate name...");
+        cloud_cert_exists = (signing_get_cert_list_and_find(&user, "horpkg", &cloud_cert) == 0);
+    }
+    
+    // --- 4. 执行用户定义的4种场景逻辑 ---
+
+    if (local_p12_exists) {
+        if (local_id_exists) {
+            if (!cloud_cert_exists) {
+                // 场景 1: 本地有签名、ID，云端无签名
+                print_warning("Local P12 and ID exist, but no matching certificate found on cloud.");
+                print_info("Using local P12 (keystore) to request a new certificate.");
+                needs_csr_request = 1; // (P12 exists, no new P12 needed)
+            } else {
+                // (隐式场景): 本地有 P12, 本地有 ID, 云端有 ID
+                if (strcmp(local_cert.id, cloud_cert.id) != 0) {
+                    print_warning("Local cert ID does not match cloud cert ID. Using cloud version.");
+                }
+                print_success("Local P12 and Cloud certificate are in sync.");
+                local_cert = cloud_cert; // 确保 local_cert 持有云端的有效数据
+                needs_csr_request = 0;
+                needs_p12_generation = 0;
+            }
+        } else { // (local_p12_exists && !local_id_exists)
+            if (!cloud_cert_exists) {
+                // 场景 2: 本地有签名、无ID，云端无签名
+                print_warning("Local P12 exists, but no local ID or cloud certificate found.");
+                print_info("Using local P12 (keystore) to request a new certificate.");
+                needs_csr_request = 1;
+            } else {
+                // 场景 3: 本地有签名、无ID，云端有签名
+                print_success("Local P12 exists, local ID was missing.");
+                print_success("Successfully recovered certificate ID from cloud.");
+                local_cert = cloud_cert; // 恢复 ID
+                needs_csr_request = 0;
+            }
+        }
+    } else { // (!local_p12_exists)
+        // 场景 4: 本地无签名
+        print_warning("Local P12 keystore ('horpkg.p12') not found.");
+        if (cloud_cert_exists) {
+            // "如果云端有签名就删除"
+            print_warning_fmt("Found an existing certificate ('%s') on cloud without a local P12.", cloud_cert.name);
+            print_info("Deleting cloud certificate to ensure consistency... (API 4)");
+            if (signing_delete_cert(&user, cloud_cert.id) != 0) {
+                print_error("Failed to delete existing cloud certificate. Please delete it manually via AGConnect.");
+                free(keystore_path); free(cert_path); free(cert_id_path);
+                return 1; 
+            }
+        }
+        // "本地重新生成P12、CSR申请签名"
+        print_info("Generating new P12 keystore...");
+        needs_p12_generation = 1;
+        needs_csr_request = 1;
+    }
+
+    // --- 5. 执行操作 (生成/请求) ---
+
+    if (needs_p12_generation) {
         if (signing_generate_keystore(keystore_path, "horpkg", "horpkg") != 0) {
             print_error("Failed to generate keystore");
-            free(keystore_path);
-            free(cert_path);
+            free(keystore_path); free(cert_path); free(cert_id_path);
             return 1;
         }
         print_success("Keystore created.\n");
-        
-        print_info("Generating CSR...");
+    }
+    
+    if (needs_csr_request) {
+        print_info("Generating CSR from keystore...");
         char csr[4096];
         if (signing_generate_csr(keystore_path, "horpkg", "horpkg", csr, sizeof(csr)) != 0) {
             print_error("Failed to generate CSR");
-            free(keystore_path);
-            free(cert_path);
+            free(keystore_path); free(cert_path); free(cert_id_path);
             return 1;
         }
         print_success("CSR generated.\n");
         
-        print_info("Requesting certificate from Huawei Cloud...");
-        if (signing_request_cert(&user, csr, &cert) != 0) {
+        print_info("Requesting certificate from Huawei Cloud (API 5)...");
+        // (使用 local_cert 结构体来接收新数据)
+        if (signing_request_cert(&user, csr, &local_cert) != 0) {
             print_error("Failed to request certificate");
-            free(keystore_path);
-            free(cert_path);
+            free(keystore_path); free(cert_path); free(cert_id_path);
             return 1;
         }
         print_success("Certificate created:");
-        printf("    ID: %s\n\n", cert.id);
+        printf("    ID: %s\n\n", local_cert.id);
         
-        print_info("Downloading certificate...");
-        if (signing_download_cert(cert.object_id, &user, cert_path) != 0) {
+        print_info("Downloading certificate (API 6.1)...");
+        if (signing_download_cert(local_cert.object_id, &user, cert_path) != 0) {
             print_error("Failed to download certificate");
-            free(keystore_path);
-            free(cert_path);
+            free(keystore_path); free(cert_path); free(cert_id_path);
             return 1;
         }
         print_success("Certificate downloaded.\n");
-        
-        char *cert_id_path = get_config_path("cert_id.conf");
-        fp = fopen(cert_id_path, "w");
-        if (fp) {
-            fprintf(fp, "%s\n", cert.id);
-            fclose(fp);
-        }
-        free(cert_id_path);
     }
     
+    // --- 6. 保存状态 ---
+    // (无论我们是恢复了 ID 还是申请了新 ID，都将其保存)
+    if (local_cert.id[0] != '\0') {
+        fp = fopen(cert_id_path, "w");
+        if (fp) {
+            fprintf(fp, "%s\n", local_cert.id);
+            fclose(fp);
+        } else {
+            print_warning("Failed to write/update cert_id.conf");
+        }
+    } else {
+        // (如果执行到这里 local_cert.id 仍然为空，说明逻辑有严重错误)
+        print_error("FATAL: Certificate ID is still empty after Step 2.");
+        free(keystore_path); free(cert_path); free(cert_id_path);
+        return 1;
+    }
+
     free(keystore_path);
     free(cert_path);
-    
-    // ===== 阶段5: 配置 Provision =====
+    free(cert_id_path);
+
+    // ===== 阶段 5: 配置 Provision =====
     print_info("Step 3: Provision Configuration");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
-    // [修改] 检查是否已在认证阶段获取了设备列表
+    // 检查是否已在认证阶段获取了设备列表
     if (!device_list_ok) {
         print_info("Getting device list (with new token)...");
         if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) != 0) {
@@ -266,12 +337,16 @@ int cmd_init(int argc, char *argv[]) {
         printf("\n");
         
         // 为核心包创建 Provision
-        print_info("Creating provision for org.horpkg.core...");
+        print_info("Creating provision for org.horpkg.core (API 7)...");
         provision_info_t provision = {0};
         
-        if (signing_create_provision(&user, &cert, (const char**)device_ids, device_count,
+        // (使用 local_cert，它现在保证持有有效的 ID)
+        if (signing_create_provision(&user, &local_cert, (const char**)device_ids, device_count,
                                      "org.horpkg.core", &provision) != 0) {
             print_error("Failed to create provision");
+            print_prompt("This may be because your 'horpkg' cert on the cloud is invalid.");
+            print_prompt("Try deleting '~/.horpkg/horpkg.p12', '~/.horpkg/cert_id.conf' and run 'init' again.");
+
         } else {
             // 下载 Provision 文件
             char *provision_dir = get_config_path("provision");
@@ -281,6 +356,7 @@ int cmd_init(int argc, char *argv[]) {
             snprintf(provision_path, sizeof(provision_path), 
                     "%s/%s.p7b", provision_dir, provision.name);
             
+            print_info("Downloading provision file (API 6.1)...");
             if (signing_download_provision(&user, provision.url, provision_path) == 0) {
                 print_success("Provision created and downloaded.\n");
             }
