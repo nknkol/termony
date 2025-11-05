@@ -247,18 +247,69 @@ char* hdc_get_uuid(void) {
 }
 
 /**
- * @brief 检查horpkg是否已初始化 (是否已有UUID)
- * @return 1 表示已初始化, 0 表示未初始化
+ * @brief 检查horpkg是否已初始化 (是否已有UUID，并且UUID是否与当前设备匹配)
+ * @return 1 表示已初始化且设备匹配, 0 表示未初始化或设备不匹配
  */
 int is_initialized(void) {
     char *uuid_path = get_config_path("uuid.conf");
     if (!uuid_path) {
-        return 0; 
+        return 0; // 无法获取配置路径
     }
     
-    int status = (access(uuid_path, F_OK) == 0);
+    // 1. 检查配置文件是否存在
+    if (access(uuid_path, F_OK) != 0) {
+        print_info("[LOG] is_initialized: uuid.conf not found.");
+        free(uuid_path);
+        return 0;
+    }
+    
+    FILE *fp = fopen(uuid_path, "r");
+    if (!fp) {
+        print_error_fmt("Failed to open %s for reading.", uuid_path);
+        free(uuid_path);
+        return 0;
+    }
+    
+    char stored_uuid[256] = {0};
+    if (fgets(stored_uuid, sizeof(stored_uuid), fp) == NULL) {
+        print_warning("[LOG] is_initialized: uuid.conf is empty.");
+        fclose(fp);
+        free(uuid_path);
+        return 0;
+    }
+    fclose(fp);
     free(uuid_path);
-    return status;
+    trim_whitespace(stored_uuid);
+    
+    if (strlen(stored_uuid) == 0) {
+        print_warning("[LOG] is_initialized: uuid.conf contains only whitespace.");
+        return 0;
+    }
+    
+    char* current_uuid = hdc_get_uuid();
+    if (current_uuid == NULL) {
+        print_info("[LOG] is_initialized: Could not get current UUID from HDC (device disconnected?).");
+        return 0; 
+    }
+
+    int match = (strcmp(stored_uuid, current_uuid) == 0);
+    
+    if (match) {
+        print_info("[LOG] is_initialized: Stored UUID matches current device.");
+    } else {
+
+        char truncated_stored[11] = {0};
+        char truncated_current[11] = {0};
+        strncpy(truncated_stored, stored_uuid, 10);
+        strncpy(truncated_current, current_uuid, 10);
+        
+        print_warning_fmt("Device mismatch: Initialized for %s..., but current device is %s...", 
+                          truncated_stored, truncated_current);
+        print_prompt("Please run 'horpkg init' to re-initialize for this device.");
+    }
+
+    free(current_uuid);
+    return match;
 }
 
 /**

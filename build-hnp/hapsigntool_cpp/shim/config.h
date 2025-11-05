@@ -1,6 +1,6 @@
 /*
  * =================================================================
- * Shim (包装器) 配置文件 (config.h) - [hdc-lite 专用]
+ * Shim (包装器) 配置文件 (config.h)
  * =================================================================
  */
 
@@ -10,7 +10,7 @@
 /* * [必需] 目标命令的绝对路径
  * (安装在 horpkgbin 目录中)
  */
-#define TARGET_COMMAND_PATH "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/horpkgbin/provisioning_tool"
+#define TARGET_COMMAND_PATH "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/horpkgbin/hapsigntool"
 
 
 /* * [可选] 要 *添加* 到库路径的环境变量名

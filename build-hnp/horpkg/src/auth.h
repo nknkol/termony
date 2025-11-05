@@ -1,21 +1,20 @@
-// build-hnp/horpkg/src/auth.h
 #ifndef HORPKG_AUTH_H
 #define HORPKG_AUTH_H
 
-#include <stddef.h>  // ← 添加这一行，提供 size_t
+#include <stddef.h>
 
-// 用户信息结构体
-typedef struct {
+typedef struct user_info_s { // (使用 user_info_s 方便 http.h 转发声明)
     char user_id[64];
     char nickname[128];
-    char token[512];
-    int real_name;
+    char jwt_token[2048];     // (API 2.1) 用于换取 AccessToken
+    char access_token[1024]; // (API 2.2) 用于所有后续的API调用
+    char team_id[64];        // (API 1.2) 团队ID (通常等于 user_id)
+    int real_name;           // (API 2.2) 是否实名
 } user_info_t;
 
-// 认证函数
 int auth_init_oauth(user_info_t *user);
-int auth_get_temp_token(char *token_out, size_t token_size);
-int auth_check_jwt_token(const char *token, user_info_t *user);
-int auth_get_user_info(const char *token, user_info_t *user);
+// int auth_get_user_info(user_info_t *user);
+int auth_get_access_token_from_jwt(user_info_t *user);
+
 
 #endif // HORPKG_AUTH_H

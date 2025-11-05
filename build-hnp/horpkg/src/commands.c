@@ -10,12 +10,9 @@
 #include "http.h"
 
 int download_file(const char *url, const char *outfile);
-
-// --- NEW Declarations (from utils.h) ---
 char* hdc_get_uuid(void);
 int store_uuid(const char* uuid);
 int is_initialized(void);
-// --- END NEW ---
 
 int ensure_config_exists() {
     const char *home_dir = getenv("HOME");
@@ -98,55 +95,71 @@ int cmd_init(int argc, char *argv[]) {
         print_info("Device UUID already registered.\n");
     }
     
-    // ===== 阶段3: 华为账号认证 =====
+    // ===== 阶段3: 华为账号认证 (已修复逻辑) =====
     print_info("Step 1: Huawei Developer Account Authentication");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
     user_info_t user = {0};
     char *config_token_path = get_config_path("token.conf");
     
-    // 检查是否已有 token
+    int need_re_auth = 1;     // 默认需要重新认证
+    int device_list_ok = 0;   // 标记设备列表是否已获取
+    
+    // -- [新增] 为C89兼容性，在块开头声明变量 --
+    char **device_ids = NULL;
+    char **device_names = NULL;
+    int device_count = 0;
+    
     FILE *fp = fopen(config_token_path, "r");
     if (fp) {
-        if (fgets(user.token, sizeof(user.token), fp)) {
-            // 去除换行符
-            size_t len = strlen(user.token);
-            if (len > 0 && user.token[len-1] == '\n') {
-                user.token[len-1] = '\0';
+        if (fgets(user.jwt_token, sizeof(user.jwt_token), fp)) {
+            size_t len = strlen(user.jwt_token);
+            if (len > 0 && user.jwt_token[len-1] == '\n') {
+                user.jwt_token[len-1] = '\0';
             }
             
-            // 验证 Token
-            if (auth_check_jwt_token(user.token, &user) == 0) {
-                auth_get_user_info(user.token, &user);
-                print_success("Using existing authentication");
-                printf("    User: %s (%s)\n", user.nickname, user.user_id);
-                printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
+            // 1. 尝试用 JWT 换 AccessToken (DevEco 检查)
+            if (auth_get_access_token_from_jwt(&user) == 0) {
+                print_success("API 2.2 (DevEco) check OK.");
+                print_info("Verifying token against AGC service (device-list)...");
+
+                // 2. [关键] 立即尝试调用 AGC API (device-list) 作为验证
+                //    (这假设 http.c 修复 已经应用)
+                if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) == 0) {
+                    // 验证成功！
+                    print_success("Using existing authentication");
+                    printf("    User: %s (%s)\n", user.nickname, user.user_id);
+                    printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
+                    need_re_auth = 0;   // 不需要重新认证
+                    device_list_ok = 1; // 设备列表已获取
+                } else {
+                    // 验证失败 (401)
+                    print_warning("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
+                    memset(&user, 0, sizeof(user)); // 清除旧 token
+                }
             } else {
-                print_warning("Existing token invalid, re-authenticating...\n");
-                fclose(fp);
-                fp = NULL;
+                print_warning("Existing token invalid (DevEco check failed), re-authenticating...\n");
+                memset(&user, 0, sizeof(user)); // 清除旧 token
             }
         }
         if (fp) fclose(fp);
     }
     
-    if (user.token[0] == '\0') {
-        // 需要重新认证
+    // 3. 如果需要（包括验证失败或首次运行），执行完整浏览器认证
+    if (need_re_auth) {
         if (auth_init_oauth(&user) != 0) {
             free(config_token_path);
             return 1;
         }
         
-        auth_get_user_info(user.token, &user);
-        
         print_success("Authentication successful!");
         printf("    User: %s (%s)\n", user.nickname, user.user_id);
         printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
         
-        // 保存 Token
+        // 4. 保存新 token
         fp = fopen(config_token_path, "w");
         if (fp) {
-            fprintf(fp, "%s\n", user.token);
+            fprintf(fp, "%s\n", user.jwt_token);
             fclose(fp);
         }
     }
@@ -208,7 +221,7 @@ int cmd_init(int argc, char *argv[]) {
         printf("    ID: %s\n\n", cert.id);
         
         print_info("Downloading certificate...");
-        if (signing_download_cert(cert.object_id, user.token, cert_path) != 0) {
+        if (signing_download_cert(cert.object_id, &user, cert_path) != 0) {
             print_error("Failed to download certificate");
             free(keystore_path);
             free(cert_path);
@@ -216,16 +229,6 @@ int cmd_init(int argc, char *argv[]) {
         }
         print_success("Certificate downloaded.\n");
         
-        print_info("Importing certificate to keystore...");
-        if (signing_import_cert(keystore_path, "horpkg", "horpkg", cert_path) != 0) {
-            print_error("Failed to import certificate");
-            free(keystore_path);
-            free(cert_path);
-            return 1;
-        }
-        print_success("Certificate imported.\n");
-        
-        // 保存证书 ID
         char *cert_id_path = get_config_path("cert_id.conf");
         fp = fopen(cert_id_path, "w");
         if (fp) {
@@ -242,15 +245,13 @@ int cmd_init(int argc, char *argv[]) {
     print_info("Step 3: Provision Configuration");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
-    // 获取设备列表
-    print_info("Getting device list...");
-    char **device_ids = NULL;
-    char **device_names = NULL;
-    int device_count = 0;
-    
-    if (signing_get_device_list(user.token, &device_ids, &device_names, &device_count) != 0) {
-        print_error("Failed to get device list");
-        return 1;
+    // [修改] 检查是否已在认证阶段获取了设备列表
+    if (!device_list_ok) {
+        print_info("Getting device list (with new token)...");
+        if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) != 0) {
+            print_error("Failed to get device list even after re-authentication.");
+            return 1;
+        }
     }
     
     if (device_count == 0) {
@@ -268,7 +269,7 @@ int cmd_init(int argc, char *argv[]) {
         print_info("Creating provision for org.horpkg.core...");
         provision_info_t provision = {0};
         
-        if (signing_create_provision(&user, &cert, (const char**)device_ids, device_count, 
+        if (signing_create_provision(&user, &cert, (const char**)device_ids, device_count,
                                      "org.horpkg.core", &provision) != 0) {
             print_error("Failed to create provision");
         } else {
@@ -280,7 +281,7 @@ int cmd_init(int argc, char *argv[]) {
             snprintf(provision_path, sizeof(provision_path), 
                     "%s/%s.p7b", provision_dir, provision.name);
             
-            if (signing_download_provision(provision.url, provision_path) == 0) {
+            if (signing_download_provision(&user, provision.url, provision_path) == 0) {
                 print_success("Provision created and downloaded.\n");
             }
             

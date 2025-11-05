@@ -21,18 +21,16 @@ typedef struct {
     char url[512];
 } provision_info_t;
 
-// 签名相关函数
+// 签名相关函数 (修改签名以传入 user)
 int signing_generate_keystore(const char *keystore_path, const char *alias, const char *password);
 int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, char *csr_out, size_t csr_size);
 int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *cert);
-int signing_download_cert(const char *object_id, const char *token, const char *output_path);
-int signing_import_cert(const char *keystore_path, const char *alias, const char *password, const char *cert_path);
-
-// Provision 相关函数
+int signing_download_cert(const char *object_id, const user_info_t *user, const char *output_path);
+// int signing_import_cert(const char *keystore_path, const char *alias, const char *password, const char *cert_path);
+// Provision 相关函数 (修改签名以传入 user)
 int signing_create_provision(const user_info_t *user, const cert_info_t *cert, const char **device_ids, int device_count, const char *bundle_name, provision_info_t *provision);
-int signing_download_provision(const char *provision_url, const char *output_path);
-
-// 设备管理
-int signing_get_device_list(const char *token, char ***device_ids_out, char ***device_names_out, int *count);
+int signing_download_provision(const user_info_t *user, const char *provision_url, const char *output_path);
+// 设备管理 (修改签名以传入 user)
+int signing_get_device_list(const user_info_t *user, char ***device_ids_out, char ***device_names_out, int *count);
 
 #endif // HORPKG_SIGNING_H

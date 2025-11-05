@@ -1,4 +1,4 @@
-// build-hnp/horpkg/src/http_server.c
+#define _DEFAULT_SOURCE
 #include "http_server.h"
 #include "utils.h"
 #include <stdio.h>

@@ -23,7 +23,7 @@ all:
 		-L../sysroot/lib -lcurl -lyyjson
 
 	mkdir -p ../sysroot
-	cp -rfv build$(PREFIX)/. ../sysroot | tee file.lst
+	cp -rfv build/$(PREFIX)/. ../sysroot | tee file.lst
 	
 	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
 		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \

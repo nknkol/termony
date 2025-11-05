@@ -8,29 +8,25 @@
 #include <string.h>
 #include <unistd.h>     // 添加：提供 mkstemp, close, unlink
 #include <yyjson.h>
+#include <errno.h>
 
 #define API_BASE "https://connect-api.cloud.huawei.com"
 
-// 生成密钥库（使用 keytool）
+// 生成密钥库（使用 hapsigntool ）
 int signing_generate_keystore(const char *keystore_path, const char *alias, const char *password) {
     char cmd[1024];
     
-    // 使用系统的 keytool（假设已安装 Java）
     snprintf(cmd, sizeof(cmd),
-             "keytool -genkeypair "
-             "-alias %s "
-             "-keyalg EC "
-             "-groupname secp256r1 "
-             "-sigalg SHA256withECDSA "
-             "-keystore %s "
-             "-storetype PKCS12 "
-             "-storepass %s "
-             "-keypass %s "
-             "-dname \"CN=Horpkg User, O=Horpkg, C=CN\" "
-             "-validity 3650 "
+             "hapsigntool generate-keypair "
+             "-keyAlias \"%s\" "
+             "-keyAlg \"ECC\" -keySize \"NIST-P-256\" "
+             "-keystoreFile \"%s\" -keystorePwd \"%s\" "
+             "-keyPwd \"%s\" "
              "2>&1",
              alias, keystore_path, password, password);
     
+    print_info_fmt("[DEBUG] Executing: %s", cmd);
+
     FILE *fp = popen(cmd, "r");
     if (!fp) {
         print_error("Failed to execute keytool");
@@ -58,38 +54,52 @@ int signing_generate_keystore(const char *keystore_path, const char *alias, cons
 
 // 生成 CSR
 int signing_generate_csr(const char *keystore_path, const char *alias, const char *password, char *csr_out, size_t csr_size) {
-    char cmd[1024];
-    char temp_file[] = "/tmp/horpkg_csr_XXXXXX";
+    char cmd[2048];
     
-    int fd = mkstemp(temp_file);
+    char *temp_file_path = get_config_path("horpkg_csr_XXXXXX");
+    if (!temp_file_path) {
+        print_error("Failed to get config path for CSR temp file.");
+        return -1;
+    }
+
+    int fd = mkstemp(temp_file_path);
     if (fd == -1) {
         print_error("Failed to create temp file for CSR");
+        print_error_fmt("System error: %s (Path: %s)", strerror(errno), temp_file_path); 
+        free(temp_file_path);
         return -1;
     }
     close(fd);
     
+    const char *lib_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/lib";
+
     snprintf(cmd, sizeof(cmd),
-             "keytool -certreq "
-             "-alias %s "
-             "-keystore %s "
-             "-storetype PKCS12 "
-             "-storepass %s "
-             "-file %s "
+             "LD_LIBRARY_PATH=\"%s\" " 
+             "hapsigntool generate-csr "
+             "-keyAlias \"%s\" -keyPwd \"%s\" "
+             "-subject \"C=CN,O=YourOrg,OU=Mobile,CN=%s\" " 
+             "-signAlg \"SHA256withECDSA\" "
+             "-keystoreFile \"%s\" -keystorePwd \"%s\" "
+             "-outFile \"%s\" "
              "2>&1",
-             alias, keystore_path, password, temp_file);
+             lib_path, alias, password, alias, keystore_path, password, temp_file_path);
     
+    print_info_fmt("[DEBUG] Executing: %s", cmd);
+
     int status = system(cmd);
     if (status != 0) {
         print_error("CSR generation failed");
-        unlink(temp_file);
+        unlink(temp_file_path);
+        free(temp_file_path);
         return -1;
     }
     
     // 读取 CSR
-    FILE *fp = fopen(temp_file, "r");
+    FILE *fp = fopen(temp_file_path, "r");
     if (!fp) {
         print_error("Failed to read CSR file");
-        unlink(temp_file);
+        unlink(temp_file_path);
+        free(temp_file_path);
         return -1;
     }
     
@@ -101,7 +111,8 @@ int signing_generate_csr(const char *keystore_path, const char *alias, const cha
     csr_out[total_read] = '\0';
     
     fclose(fp);
-    unlink(temp_file);
+    unlink(temp_file_path);
+    free(temp_file_path);
     
     return 0;
 }
@@ -132,8 +143,8 @@ int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *
              "certType=1&csr=%s&certName=%s",
              encoded_csr, cert_name);
     
-    http_response_t *resp = http_post(url, user->token, post_data, 
-                                       "application/x-www-form-urlencoded");
+    http_response_t *resp = http_post_authed(url, user, post_data, 
+                                           "application/x-www-form-urlencoded");
     
     free(encoded_csr);
     free(post_data);
@@ -180,14 +191,17 @@ int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *
 }
 
 // 下载证书
-int signing_download_cert(const char *object_id, const char *token, const char *output_path) {
+int signing_download_cert(const char *object_id, const user_info_t *user, const char *output_path) {
     char url[256];
     snprintf(url, sizeof(url), "%s/api/amis/app-manage/v1/objects/url/reapply", API_BASE);
     
+    // (注意: API 6.1 使用 application/x-www-form-urlencoded)
     char post_data[512];
-    snprintf(post_data, sizeof(post_data), "{\"objectIds\": [\"%s\"]}", object_id);
+    snprintf(post_data, sizeof(post_data), "sourceUrls=%s", object_id);
     
-    http_response_t *resp = http_post(url, token, post_data, "application/json");
+    // [修改] 使用 http_post_authed 并传入 user
+    http_response_t *resp = http_post_authed(url, user, post_data, 
+                                           "application/x-www-form-urlencoded");
     
     if (!resp || resp->status_code != 200) {
         print_error("Failed to get certificate download URL");
@@ -204,57 +218,43 @@ int signing_download_cert(const char *object_id, const char *token, const char *
         return -1;
     }
     
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    yyjson_val *objects = yyjson_obj_get(root, "objects");
-    yyjson_val *first_obj = yyjson_arr_get_first(objects);
-    const char *download_url = yyjson_get_str(yyjson_obj_get(first_obj, "url"));
+    // (注意: API 6.1 的响应结构与 python 示例不同，
+    //  python 示例 (api_9) 显示 "urlsInfo" 而旧 C 代码显示 "objects"。
+    //  我们遵循 API 6.1 文档，使用 "urlsInfo"。)
     
-    if (!download_url) {
-        print_error("No download URL in response");
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *urls_info = yyjson_obj_get(root, "urlsInfo");
+    
+    if (!urls_info || !yyjson_is_arr(urls_info)) {
+        print_error("No 'urlsInfo' array in response");
         yyjson_doc_free(doc);
         return -1;
     }
     
-    // 下载文件
+    yyjson_val *first_obj = yyjson_arr_get_first(urls_info);
+    const char *download_url = yyjson_get_str(yyjson_obj_get(first_obj, "newUrl"));
+    
+    if (!download_url) {
+        print_error("No 'newUrl' in response");
+        yyjson_doc_free(doc);
+        return -1;
+    }
+    
+    // [修改] http_download_file 是独立的，不需要认证
     int result = http_download_file(download_url, output_path);
     
     yyjson_doc_free(doc);
     return result;
 }
 
-// 导入证书到密钥库
-int signing_import_cert(const char *keystore_path, const char *alias, const char *password, const char *cert_path) {
-    char cmd[1024];
-    
-    snprintf(cmd, sizeof(cmd),
-             "keytool -importcert "
-             "-alias %s "
-             "-keystore %s "
-             "-storetype PKCS12 "
-             "-storepass %s "
-             "-file %s "
-             "-noprompt "
-             "2>&1",
-             alias, keystore_path, password, cert_path);
-    
-    int status = system(cmd);
-    
-    if (status != 0) {
-        print_error("Certificate import failed");
-        return -1;
-    }
-    
-    return 0;
-}
-
 // 获取设备列表
-int signing_get_device_list(const char *token, char ***device_ids_out, char ***device_names_out, int *count) {
+int signing_get_device_list(const user_info_t *user, char ***device_ids_out, char ***device_names_out, int *count) {
     char url[256];
     snprintf(url, sizeof(url), 
              "%s/api/cps/device-manage/v1/device/list?start=1&pageSize=100&encodeFlag=0", 
              API_BASE);
-    
-    http_response_t *resp = http_get(url, token);
+
+    http_response_t *resp = http_get_authed(url, user, 0);
     
     if (!resp || resp->status_code != 200) {
         print_error("Failed to get device list");
@@ -346,7 +346,7 @@ int signing_create_provision(const user_info_t *user, const cert_info_t *cert,
              "}",
              provision_name, device_list_json, cert->id, bundle_name);
     
-    http_response_t *resp = http_post(url, user->token, post_data, "application/json");
+    http_response_t *resp = http_post_authed(url, user, post_data, "application/json");
     
     if (!resp || resp->status_code != 200) {
         print_error("Failed to create provision");
@@ -385,6 +385,6 @@ int signing_create_provision(const user_info_t *user, const cert_info_t *cert,
 }
 
 // 下载 Provision 文件
-int signing_download_provision(const char *provision_url, const char *output_path) {
-    return http_download_file(provision_url, output_path);
+int signing_download_provision(const user_info_t *user, const char *provision_object_id, const char *output_path) {
+    return signing_download_cert(provision_object_id, user, output_path);
 }
