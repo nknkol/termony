@@ -20,7 +20,7 @@ all:
 		-o build$(PREFIX)/horpkgbin/$(REAL_BINARY_NAME) \
 		src/*.c \
 		-I../sysroot/include \
-		-L../sysroot/lib -lcurl -lyyjson
+		-L../sysroot/lib -lcurl -lyyjson -lzip
 
 	mkdir -p ../sysroot
 	cp -rfv build/$(PREFIX)/. ../sysroot | tee file.lst

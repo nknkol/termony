@@ -1,12 +1,13 @@
-#define _POSIX_C_SOURCE 200809L  // 启用 POSIX 扩展
+#define _POSIX_C_SOURCE 200809L
 
 #include "signing.h"
 #include "http.h"
 #include "utils.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>     // 添加：提供 mkstemp, close, unlink
+#include <unistd.h>     // 添加：提供 mkstemp, close, unlink, access
 #include <yyjson.h>
 #include <errno.h>
 #include <time.h>
@@ -20,7 +21,7 @@ int signing_generate_keystore(const char *keystore_path, const char *alias, cons
     snprintf(cmd, sizeof(cmd),
              "hapsigntool generate-keypair "
              "-keyAlias \"%s\" "
-             "-keyAlg \"ECC\" -keySize \"NIST-P-256\" "
+             "-keyAlg \"ECC\" -keySize \"NIST-P-384\" "
              "-keystoreFile \"%s\" -keystorePwd \"%s\" "
              "-keyPwd \"%s\" "
              "2>&1",
@@ -240,49 +241,56 @@ int signing_delete_cert(const user_info_t *user, const char *cert_id) {
 }
 
 // 申请证书
+/*
+ * 位于: horpkg/src/signing.c
+ *
+ * (确保在此文件顶部已 #include "logger.h" 和 <curl/curl.h> (通常通过 http.h 间接包含)
+ */
+// 申请证书
 int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *cert) {
     char url[256];
     snprintf(url, sizeof(url), "%s/api/cps/harmony-cert-manage/v1/cert/add", API_BASE);
     
-    // URL 编码 CSR
-    // 简化版：这里应该做完整的 URL 编码
-    char *encoded_csr = strdup(csr);
+    char *encoded_csr = curl_easy_escape(NULL, csr, 0); 
     if (!encoded_csr) {
-        return -1;
-    }
-    
-    // 构建表单数据
-    char *post_data = malloc(strlen(encoded_csr) + 512);
-    if (!post_data) {
-        free(encoded_csr);
+        log_error("Failed to URL-encode CSR string.");
         return -1;
     }
     
     char cert_name[128];
     snprintf(cert_name, sizeof(cert_name), "horpkg_auto_%s.cer", user->user_id);
+
+    size_t post_data_len = strlen("certType=1&csr=") + strlen(encoded_csr) + 
+                           strlen("&certName=") + strlen(cert_name) + 1;
     
-    snprintf(post_data, strlen(encoded_csr) + 512,
+    char *post_data = malloc(post_data_len);
+    if (!post_data) {
+        curl_free(encoded_csr);
+        log_error("Failed to allocate memory for post data.");
+        return -1;
+    }
+    
+    snprintf(post_data, post_data_len,
              "certType=1&csr=%s&certName=%s",
              encoded_csr, cert_name);
     
     http_response_t *resp = http_post_authed(url, user, post_data, 
                                            "application/x-www-form-urlencoded");
     
-    free(encoded_csr);
+    curl_free(encoded_csr);
     free(post_data);
     
     if (!resp || resp->status_code != 200) {
-        print_error("Failed to request certificate");
+        log_error("Failed to request certificate (HTTP %ld)", resp ? resp->status_code : 0);
         http_response_free(resp);
         return -1;
     }
     
-    // 解析响应
     yyjson_doc *doc = yyjson_read(resp->data, resp->size, 0);
     http_response_free(resp);
     
     if (!doc) {
-        print_error("Failed to parse certificate response");
+        log_error("Failed to parse certificate response JSON");
         return -1;
     }
     
@@ -291,12 +299,12 @@ int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *
     int code = yyjson_get_int(yyjson_obj_get(ret, "code"));
     
     if (code != 0) {
-        print_error("Certificate request failed");
+        log_error("Certificate request failed (API code %d): %s", 
+                  code, yyjson_get_str(yyjson_obj_get(ret, "msg")));
         yyjson_doc_free(doc);
         return -1;
     }
     
-    // 提取证书信息
     yyjson_val *harmony_cert = yyjson_obj_get(root, "harmonyCert");
     if (harmony_cert) {
         const char *id = yyjson_get_str(yyjson_obj_get(harmony_cert, "id"));
@@ -363,7 +371,9 @@ int signing_download_cert(const char *object_id, const user_info_t *user, const 
     }
     
     // [修改] http_download_file 是独立的，不需要认证
-    int result = http_download_file(download_url, output_path);
+    // [!] download_file 位于 download.c
+    int download_file(const char *url, const char *outfile);
+    int result = download_file(download_url, output_path);
     
     yyjson_doc_free(doc);
     return result;
@@ -376,10 +386,16 @@ int signing_get_device_list(const user_info_t *user, char ***device_ids_out, cha
              "%s/api/cps/device-manage/v1/device/list?start=1&pageSize=100&encodeFlag=0", 
              API_BASE);
 
-    http_response_t *resp = http_get_authed(url, user, 0);
+    // [!] API 4.1 (get_device_list) 不发送 content-type，但需要 accept: application/json (http_get_authed 默认)
+    // [!] 修正：根据 API 文档，它不需要 content-type，也不需要 accept:json。
+    // 我们使用 http_get_authed(..., user, 0) 来发送认证头，但不发送 accept:json
+    http_response_t *resp = http_get_authed(url, user, 0); 
     
     if (!resp || resp->status_code != 200) {
         print_error("Failed to get device list");
+        if (resp) {
+            print_error_fmt("HDC Response (Data): %s", resp->data ? resp->data : "NULL");
+        }
         http_response_free(resp);
         return -1;
     }
@@ -399,6 +415,8 @@ int signing_get_device_list(const user_info_t *user, char ***device_ids_out, cha
     if (!list) {
         yyjson_doc_free(doc);
         *count = 0;
+        *device_ids_out = NULL;
+        *device_names_out = NULL;
         return 0;
     }
     
@@ -407,6 +425,8 @@ int signing_get_device_list(const user_info_t *user, char ***device_ids_out, cha
     
     if (arr_size == 0) {
         yyjson_doc_free(doc);
+        *device_ids_out = NULL;
+        *device_names_out = NULL;
         return 0;
     }
     
@@ -508,5 +528,82 @@ int signing_create_provision(const user_info_t *user, const cert_info_t *cert,
 
 // 下载 Provision 文件
 int signing_download_provision(const user_info_t *user, const char *provision_object_id, const char *output_path) {
+    // 下载 provision 和下载 cert 使用完全相同的 API (6.1)
     return signing_download_cert(provision_object_id, user, output_path);
+}
+
+// [新] 确保 Provision 文件存在
+int signing_ensure_provision_for_bundle(const user_info_t *user, const char *bundle_name, const cert_info_t *cert, char *profile_path_out, size_t profile_path_size) {
+    
+    char profile_filename[256];
+    snprintf(profile_filename, sizeof(profile_filename), "%s.p7b", bundle_name);
+
+    char *local_path = get_config_path(profile_filename);
+    if (!local_path) {
+        log_error("Failed to construct local profile path.");
+        return -1;
+    }
+
+    // 1. 检查本地是否已存在
+    if (access(local_path, F_OK) == 0) {
+        print_info_fmt("Found existing local profile: %s", local_path);
+        strncpy(profile_path_out, local_path, profile_path_size - 1);
+        free(local_path);
+        return 0;
+    }
+
+    log_warn("Local profile '%s' not found. Requesting from cloud...", profile_filename);
+
+    // 2. 获取设备列表 (API 4.1)
+    char **device_ids = NULL;
+    char **device_names = NULL;
+    int device_count = 0;
+    
+    if (signing_get_device_list(user, &device_ids, &device_names, &device_count) != 0) {
+        log_error("Failed to get device list (API 4.1). Cannot create profile.");
+        free(local_path);
+        return -1;
+    }
+
+    if (device_count == 0) {
+        log_error("No devices registered to your account. Cannot create profile.");
+        print_prompt("Please register your device in DevEco Studio or developer.huawei.com");
+        free(local_path);
+        return -1;
+    }
+
+    log_info("Using %d registered device(s) for profile.", device_count);
+
+    // 3. 创建 Provision (API 5.1)
+    provision_info_t provision = {0};
+    if (signing_create_provision(user, cert, (const char**)device_ids, device_count, bundle_name, &provision) != 0) {
+        print_error_fmt("Failed to create provision profile for '%s' (API 5.1).", bundle_name);
+        // (清理)
+        for (int i = 0; i < device_count; i++) { free(device_ids[i]); free(device_names[i]); }
+        free(device_ids); free(device_names);
+        free(local_path);
+        return -1;
+    }
+
+    print_success_fmt("Successfully created profile '%s' on cloud.", provision.name);
+
+    // 4. 下载 Provision (API 6.1)
+    if (signing_download_provision(user, provision.url, local_path) != 0) {
+        print_error_fmt("Failed to download profile to '%s' (API 6.1).", local_path);
+        // (清理)
+        for (int i = 0; i < device_count; i++) { free(device_ids[i]); free(device_names[i]); }
+        free(device_ids); free(device_names);
+        free(local_path);
+        return -1;
+    }
+
+    print_success_fmt("Profile downloaded successfully: %s", local_path);
+    strncpy(profile_path_out, local_path, profile_path_size - 1);
+
+    // (最终清理)
+    for (int i = 0; i < device_count; i++) { free(device_ids[i]); free(device_names[i]); }
+    free(device_ids); free(device_names);
+    free(local_path);
+    
+    return 0;
 }

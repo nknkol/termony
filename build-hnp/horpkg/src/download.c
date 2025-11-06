@@ -1,3 +1,4 @@
+#include "download.h" // [!] 包含新头文件
 #include <stdio.h>
 #include <string.h>
 #include <curl/curl.h>
