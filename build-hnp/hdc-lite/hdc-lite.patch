@@ -79,9 +79,18 @@ index f6bbb36..ec9ef8a 100644
  #include "uart.h"
  #endif
 diff --git a/hdc/src/common/define.h b/src/common/define.h
-index 669f419..5d219d3 100644
+index 669f419..8f1cfb5 100644
 --- a/hdc/src/common/define.h
 +++ b/src/common/define.h
+@@ -112,7 +112,7 @@ const string LOG_FILE_NAME = "hdc.log";
+ const string LOG_FILE_NAME_PREFIX = "hdc-";
+ const string LOG_CACHE_NAME = ".hdc.cache.log";
+ constexpr uint64_t LOG_FILE_MAX_SIZE = 104857600;
+-const string SERVER_NAME = "HDCServer";
++const string SERVER_NAME = "HDCLite_Server";
+ const string STRING_EMPTY = "";
+ const string HANDSHAKE_MESSAGE = "OHOS HDC";  // sep not char '-', not more than 11 bytes
+ const string HANDSHAKE_FAILED = "HS FAILED";
 @@ -150,14 +150,14 @@ const string CMDSTR_TMODE_USB = "usb";
  const string HILOG_NAME = "hilog.exe";
  const string SPLIT = "\\";
