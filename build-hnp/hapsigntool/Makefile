@@ -40,8 +40,11 @@ INTERNAL_INCLUDES = \
     -I$(HAPSIGNTOOL_CPP_SRC_DIR)/zip/include \
     -I$(CURDIR)/../sysroot/include
 
-HAPSIGNTOOL_INCLUDES = -I$(SECUREC_DIR)/include \
--I$(JSON_DIR)/include -I$(ZLIB_SRC_DIR) $(INTERNAL_INCLUDES)
+HAPSIGNTOOL_INCLUDES = \
+  -I$(SECUREC_DIR)/include \
+  -I$(JSON_DIR)/include \
+  -I$(ZLIB_SRC_DIR) \
+  $(INTERNAL_INCLUDES)
 
 HAPSIGNTOOL_CFLAGS = $(CFLAGS) $(HAPSIGNTOOL_INCLUDES)
 HAPSIGNTOOL_CXXFLAGS = $(CXXFLAGS) $(HAPSIGNTOOL_INCLUDES) -std=c++17
@@ -52,30 +55,37 @@ HAPSIGNTOOL_LIBS    = -lssl -lcrypto -lbz2 -lz
 all: $(SECUREC_STAMP) $(JSON_STAMP) $(ZLIB_STAMP) $(HAPSIGNTOOL_CPP_STAMP)
 	@rm -rf build
 	@mkdir -p build/obj
-	
+
 	@CPP_SRCS=$$(find $(HAPSIGNTOOL_CPP_SRC_DIR) -name "*.cpp") && \
 	for src in $$CPP_SRCS; do \
-		obj="build/obj/$$(basename $$src .cpp).o"; \
+		if [ ! -f "$$src" ]; then echo "Missing source $$src"; exit 1; fi; \
+		case "$$src" in \
+			$(CURDIR)/*) rel=$${src#$(CURDIR)/}; obj="build/obj/$${rel%.cpp}.o";; \
+			*) base=$$(basename "$$src" .cpp); obj="build/obj/external_$$base.o";; \
+		esac; \
+		mkdir -p "$$(dirname $$obj)"; \
 		echo "Compiling $$src..."; \
-		$(CXX) $(HAPSIGNTOOL_CXXFLAGS) -c $$src -o $$obj; \
-		if [ $$? -ne 0 ]; then echo "编译失败: $$src"; exit 1; fi; \
+		$(CXX) $(HAPSIGNTOOL_CXXFLAGS) -c $$src -o $$obj || { echo "编译失败: $$src"; exit 1; }; \
 	done
-	
-	@C_SRCS=$$(find $(SECUREC_DIR)/src -name "*.c") && \
-	C_SRCS="$$C_SRCS $(ZLIB_SRC_DIR)/contrib/minizip/ioapi.c $(ZLIB_SRC_DIR)/contrib/minizip/unzip.c" && \
+
+	@C_SRCS=$$(find $(SECUREC_DIR)/src -name "*.c"); \
+	C_SRCS="$$C_SRCS $(ZLIB_SRC_DIR)/contrib/minizip/ioapi.c $(ZLIB_SRC_DIR)/contrib/minizip/unzip.c"; \
 	for src in $$C_SRCS; do \
-		obj="build/obj/$$(basename $$src .c).o"; \
+		case "$$src" in \
+			$(CURDIR)/*) rel=$${src#$(CURDIR)/}; obj="build/obj/$${rel%.c}.o";; \
+			*) sanitized=$$(echo $$src | tr '/:.' '___'); obj="build/obj/external_$$sanitized.o";; \
+		esac; \
+		mkdir -p "$$(dirname $$obj)"; \
 		echo "Compiling $$src..."; \
-		$(CC) $(HAPSIGNTOOL_CFLAGS) -c $$src -o $$obj; \
-		if [ $$? -ne 0 ]; then echo "编译失败: $$src"; exit 1; fi; \
+		$(CC) $(HAPSIGNTOOL_CFLAGS) -c $$src -o $$obj || { echo "编译失败: $$src"; exit 1; }; \
 	done
-	
-	@OBJS=$$(find build/obj -name "*.o") && \
+
+	@OBJS=$$(find build/obj -name "*.o"); \
 	$(CXX) $(HAPSIGNTOOL_LDFLAGS) $$OBJS -o $(TARGET) $(HAPSIGNTOOL_LIBS)
-	
+
 	@mkdir -p ../sysroot/horpkgbin
 	@cp -fv $(TARGET) ../sysroot/horpkgbin/ | tee file.lst
-	#///////////////
+
 	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
 		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \
 		echo "Please create 'shim/config.h' inside the '$(shell pwd)' directory." >&2; \
@@ -83,26 +93,40 @@ all: $(SECUREC_STAMP) $(JSON_STAMP) $(ZLIB_STAMP) $(HAPSIGNTOOL_CPP_STAMP)
 	fi
 	@echo "==> [hapsigntool] Building and installing shim wrapper -> ../sysroot/bin/$(TARGET_NAME)"
 	$(MAKE) -C ../shim install SHIM_NAME=$(TARGET_NAME) CONFIG_PATH=$(SHIM_CONFIG_PATH)
-	#///////////////
 
 $(SECUREC_STAMP): $(SECUREC_ZIP)
 	@rm -rf $(SECUREC_DIR)
 	@mkdir -p $(CURDIR)/temp
-	@unzip -q $< -d $(CURDIR)/temp
+	@if ! unzip -q $< -d $(CURDIR)/temp; then \
+		echo "==> securec archive corrupted, re-downloading..."; \
+		rm -f $<; \
+		$(MAKE) $(SECUREC_ZIP); \
+		unzip -q $< -d $(CURDIR)/temp; \
+	fi
 	@mv $(CURDIR)/temp/third_party_bounds_checking_function-OpenHarmony-5.0.1-Release $(SECUREC_DIR)
 	@touch $@
 
 $(JSON_STAMP): $(JSON_ZIP)
 	@rm -rf $(JSON_DIR)
 	@mkdir -p $(CURDIR)/temp
-	@unzip -q $< -d $(CURDIR)/temp
+	@if ! unzip -q $< -d $(CURDIR)/temp; then \
+		echo "==> nlohmann_json archive corrupted, re-downloading..."; \
+		rm -f $<; \
+		$(MAKE) $(JSON_ZIP); \
+		unzip -q $< -d $(CURDIR)/temp; \
+	fi
 	@mv $(CURDIR)/temp/json-3.12.0 $(JSON_DIR)
 	@touch $@
 
 $(HAPSIGNTOOL_CPP_STAMP): $(HAPSIGNTOOL_REPO_ZIP)
 	@rm -rf $(HAPSIGNTOOL_CPP_SRC_DIR)
 	@mkdir -p $(CURDIR)/temp
-	@unzip -q $< -d $(CURDIR)/temp
+	@if ! unzip -q $< -d $(CURDIR)/temp; then \
+		echo "==> hapsigner_repo archive corrupted, re-downloading..."; \
+		rm -f $<; \
+		$(MAKE) $(HAPSIGNTOOL_REPO_ZIP); \
+		unzip -q $< -d $(CURDIR)/temp; \
+	fi
 	@TEMP_REPO_DIR=$$(find $(CURDIR)/temp -maxdepth 1 -type d -name "developtools_hapsigner*") && \
 	if [ -n "$$TEMP_REPO_DIR" ] && [ -d "$$TEMP_REPO_DIR/hapsigntool_cpp" ]; then \
 		echo "在 $$TEMP_REPO_DIR 找到仓库, 正在移动 'hapsigntool_cpp' 到 $(HAPSIGNTOOL_CPP_SRC_DIR)"; \
@@ -130,4 +154,3 @@ $(HAPSIGNTOOL_REPO_ZIP):
 
 .SECONDARY: $(SECUREC_ZIP) $(JSON_ZIP) $(HAPSIGNTOOL_REPO_ZIP)
 .SECONDARY: $(SECUREC_STAMP) $(JSON_STAMP) $(HAPSIGNTOOL_CPP_STAMP)
-
