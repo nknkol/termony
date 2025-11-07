@@ -251,46 +251,79 @@ int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *
     char url[256];
     snprintf(url, sizeof(url), "%s/api/cps/harmony-cert-manage/v1/cert/add", API_BASE);
     
+    // --- [修复开始] ---
+    // `csr` 变量包含完整的 CSR 内容 (Key A, 包含页眉和 \n 换行符)
+    
+    // 1. 使用 curl_easy_escape 进行 URL 编码
+    //    这将把 \n 转换为 %0A, + 转换 %2B, 空格 转换为 + (或 %20)
     char *encoded_csr = curl_easy_escape(NULL, csr, 0); 
     if (!encoded_csr) {
-        log_error("Failed to URL-encode CSR string.");
+        log_error("Failed to URL-encode CSR string."); // [!] 使用 logger
         return -1;
     }
     
     char cert_name[128];
     snprintf(cert_name, sizeof(cert_name), "horpkg_auto_%s.cer", user->user_id);
 
+    // 2. 计算 post_data 的正确缓冲区大小 (基于 *已编码* 的 CSR)
     size_t post_data_len = strlen("certType=1&csr=") + strlen(encoded_csr) + 
                            strlen("&certName=") + strlen(cert_name) + 1;
     
     char *post_data = malloc(post_data_len);
     if (!post_data) {
-        curl_free(encoded_csr);
-        log_error("Failed to allocate memory for post data.");
+        curl_free(encoded_csr); 
+        log_error("Failed to allocate memory for post data."); // [!] 使用 logger
         return -1;
     }
     
+    // 3. 使用正确的长度安全地构建 post_data
     snprintf(post_data, post_data_len,
              "certType=1&csr=%s&certName=%s",
              encoded_csr, cert_name);
     
+    // 4. [!] 释放 curl_easy_escape 的内存 (post_data 还需要)
+    curl_free(encoded_csr);
+    
+    // --- [修复结束] ---
+
+    // --- [新增日志：按照您的要求] ---
+    char *log_path = get_config_path("log.txt");
+    if (log_path) {
+        FILE *f_log = fopen(log_path, "a");
+        if (f_log) {
+            time_t t = time(NULL);
+            char time_buf[100];
+            strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", localtime(&t));
+            
+            fprintf(f_log, "--- BEGIN POST (API 5) [%s] ---\n", time_buf);
+            fprintf(f_log, "URL: %s\n", url);
+            fprintf(f_log, "POST_BODY: %s\n", post_data); // 记录 *已编码* 的数据
+            fprintf(f_log, "--- END POST ---\n\n");
+            fclose(f_log);
+            log_info("Debug POST data saved to: %s", log_path);
+        }
+        free(log_path);
+    }
+    // --- [新增日志结束] ---
+    
     http_response_t *resp = http_post_authed(url, user, post_data, 
                                            "application/x-www-form-urlencoded");
     
-    curl_free(encoded_csr);
+    // 5. [!] 释放 post_data 的内存
     free(post_data);
     
     if (!resp || resp->status_code != 200) {
-        log_error("Failed to request certificate (HTTP %ld)", resp ? resp->status_code : 0);
+        log_error("Failed to request certificate (HTTP %ld)", resp ? resp->status_code : 0); // [!] 使用 logger
         http_response_free(resp);
         return -1;
     }
     
+    // (其余的 JSON 解析逻辑保持不变)
     yyjson_doc *doc = yyjson_read(resp->data, resp->size, 0);
     http_response_free(resp);
     
     if (!doc) {
-        log_error("Failed to parse certificate response JSON");
+        log_error("Failed to parse certificate response JSON"); // [!] 使用 logger
         return -1;
     }
     
@@ -300,7 +333,7 @@ int signing_request_cert(const user_info_t *user, const char *csr, cert_info_t *
     
     if (code != 0) {
         log_error("Certificate request failed (API code %d): %s", 
-                  code, yyjson_get_str(yyjson_obj_get(ret, "msg")));
+                  code, yyjson_get_str(yyjson_obj_get(ret, "msg"))); // [!] 使用 logger
         yyjson_doc_free(doc);
         return -1;
     }
