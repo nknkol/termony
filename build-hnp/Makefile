@@ -17,7 +17,8 @@ PKGS=zlib \
     horpkg \
     busybox \
 	bzip2 \
-	hapsigntool_cpp
+	hapsigntool_cpp \
+	binary_sign_tool
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -37,7 +38,8 @@ PKGS=zlib \
     horpkg \
     busybox \
 	bzip2 \
-	hapsigntool_cpp
+	hapsigntool_cpp \
+	binary_sign_tool
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
