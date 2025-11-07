@@ -57,42 +57,39 @@ int cmd_init(int argc, char *argv[]) {
     // [!] `device_list_ok` 等变量移至 `signing_ensure_provision_for_bundle`
     
     // (重构: 从 g_config 加载 token)
-    if (g_config.auth.jwt_token[0] != '\0') {
+    if (g_config.auth.jwt_token[0] != '\0' && g_config.auth.access_token[0] != '\0') {
         // (将 g_config 应用到本地 user 变量)
         config_apply_auth_to_user(&user);
-        
-        if (auth_get_access_token_from_jwt(&user) == 0) {
-            log_info("API 2.2 (DevEco) check OK.");
-            log_info("Verifying token against AGC service (device-list)...");
+        log_info("Verifying saved authentication against AGC device list...");
 
-            // (使用 API 4.1 获取设备列表作为验证)
-            char **device_ids = NULL;
-            char **device_names = NULL;
-            int device_count = 0;
-            if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) == 0) {
-                log_info("Using existing authentication");
-                printf("    User: %s (%s)\n", user.nickname, user.user_id);
-                printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
-                need_re_auth = 0;
-                
-                // (重要) 更新 g_config 中的 access_token 和 user_info
-                config_update_auth_from_user(&user);
+        // (使用 API 4.1 获取设备列表作为验证)
+        char **device_ids = NULL;
+        char **device_names = NULL;
+        int device_count = 0;
+        if (signing_get_device_list(&user, &device_ids, &device_names, &device_count) == 0) {
+            log_info("Using existing authentication");
+            printf("    User: %s (%s)\n", user.nickname, user.user_id);
+            printf("    Real Name: %s\n\n", user.real_name ? "✓" : "✗");
+            need_re_auth = 0;
 
-                // (清理设备列表)
-                for (int i = 0; i < device_count; i++) {
-                    free(device_ids[i]);
-                    free(device_names[i]);
-                }
-                free(device_ids);
-                free(device_names);
-                
-            } else {
-                log_warn("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
-                memset(&user, 0, sizeof(user));
-            }
+            // (保持 g_config 中的用户信息最新)
+            config_update_auth_from_user(&user);
         } else {
-            log_warn("Existing token invalid (DevEco check failed), re-authenticating...\n");
+            log_warn("Existing token is invalid for AGC (AppGallery Connect). Forcing re-authentication...\n");
             memset(&user, 0, sizeof(user));
+        }
+
+        if (device_ids) {
+            for (int i = 0; i < device_count; i++) {
+                free(device_ids[i]);
+            }
+            free(device_ids);
+        }
+        if (device_names) {
+            for (int i = 0; i < device_count; i++) {
+                free(device_names[i]);
+            }
+            free(device_names);
         }
     }
     

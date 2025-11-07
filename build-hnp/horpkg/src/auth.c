@@ -2,6 +2,8 @@
 #include "http.h"
 #include "http_server.h"
 #include "utils.h"
+#include "config.h"
+#include "signing.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,6 +202,77 @@ int auth_init_oauth(user_info_t *user) {
     }
     
     print_success("Token validated successfully!");
+
+    return 0;
+}
+
+static void auth_free_device_arrays(char **ids, char **names, int count) {
+    if (ids) {
+        for (int i = 0; i < count; i++) {
+            free(ids[i]);
+        }
+        free(ids);
+    }
+    if (names) {
+        for (int i = 0; i < count; i++) {
+            free(names[i]);
+        }
+        free(names);
+    }
+}
+
+static int auth_validate_session_with_devices(user_info_t *user) {
+    char **device_ids = NULL;
+    char **device_names = NULL;
+    int device_count = 0;
+    int status = signing_get_device_list(user, &device_ids, &device_names, &device_count);
+    auth_free_device_arrays(device_ids, device_names, device_count);
+    return status;
+}
+
+static int auth_reauthenticate(user_info_t *user) {
+    print_info("Starting Huawei authentication flow...");
+    user_info_t refreshed = {0};
+    if (auth_init_oauth(&refreshed) != 0) {
+        print_error("Re-authentication failed. Please try again.");
+        return -1;
+    }
+
+    memcpy(user, &refreshed, sizeof(user_info_t));
+    config_update_auth_from_user(user);
+    if (config_save() != 0) {
+        log_warn("Failed to persist refreshed authentication to config.json.");
+    }
+
+    print_success_fmt("Logged in as %s (%s)", user->nickname, user->user_id);
+    return 0;
+}
+
+int auth_ensure_valid_session(user_info_t *user_out) {
+    user_info_t local_user = {0};
+    user_info_t *user = user_out ? user_out : &local_user;
+    memset(user, 0, sizeof(*user));
+
+    config_apply_auth_to_user(user);
+    if (user->access_token[0] == '\0' || user->jwt_token[0] == '\0') {
+        print_warning("No cached authentication found. Launching login flow...");
+        return auth_reauthenticate(user);
+    }
+
+    if (auth_validate_session_with_devices(user) == 0) {
+        config_update_auth_from_user(user);
+        return 0;
+    }
+
+    print_warning("Cached authentication expired. Re-authentication required.");
+    if (auth_reauthenticate(user) != 0) {
+        return -1;
+    }
+
+    if (auth_validate_session_with_devices(user) != 0) {
+        print_error("Re-authentication succeeded but failed to verify device list. Please try again later.");
+        return -1;
+    }
 
     return 0;
 }

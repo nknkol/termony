@@ -34,6 +34,10 @@ int cmd_install(int argc, char *argv[]) {
         return 1;
     }
 
+    if (auth_ensure_valid_session(NULL) != 0) {
+        return 1;
+    }
+
     // 检查是否为本地安装
     // (如果参数以 ./, ../, / 开头, 或以 .hap / .hsp 结尾, 则视为本地文件)
     if (strncmp(package_arg, "./", 2) == 0 ||

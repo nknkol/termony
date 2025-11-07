@@ -30,6 +30,7 @@ typedef struct {
     char device_uuid[256];          // (替换 uuid.conf)
     char cert_id[64];               // (替换 cert_id.conf)
     mirror_config_t primary_mirror; // (替换 mirrors.json)
+    char last_hdc_port[16];         // 记住上次成功连接的HDC端口
     
     // (未来扩展)
     char default_mode[32];

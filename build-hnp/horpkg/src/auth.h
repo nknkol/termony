@@ -15,6 +15,7 @@ typedef struct user_info_s { // (使用 user_info_s 方便 http.h 转发声明)
 int auth_init_oauth(user_info_t *user);
 // int auth_get_user_info(user_info_t *user);
 int auth_get_access_token_from_jwt(user_info_t *user);
+int auth_ensure_valid_session(user_info_t *user);
 
 
 #endif // HORPKG_AUTH_H

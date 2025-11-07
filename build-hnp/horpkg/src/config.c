@@ -68,6 +68,7 @@ static void config_set_defaults(void) {
     g_config.auth.jwt_token[0] = '\0';
     g_config.device_uuid[0] = '\0';
     g_config.cert_id[0] = '\0';
+    g_config.last_hdc_port[0] = '\0';
 }
 
 // 从 config.json 加载配置
@@ -101,6 +102,7 @@ int config_load(void) {
     // (加载其他设置)
     json_get_string(root, "device_uuid", g_config.device_uuid, sizeof(g_config.device_uuid));
     json_get_string(root, "cert_id", g_config.cert_id, sizeof(g_config.cert_id));
+    json_get_string(root, "last_hdc_port", g_config.last_hdc_port, sizeof(g_config.last_hdc_port));
 
     // (加载 Mirror)
     yyjson_val *mirror = yyjson_obj_get(root, "primary_mirror");
@@ -151,6 +153,7 @@ int config_save(void) {
     // (保存其他设置)
     yyjson_mut_obj_add_str(doc, root, "device_uuid", g_config.device_uuid);
     yyjson_mut_obj_add_str(doc, root, "cert_id", g_config.cert_id);
+    yyjson_mut_obj_add_str(doc, root, "last_hdc_port", g_config.last_hdc_port);
 
     // (保存 Mirror)
     yyjson_mut_val *mirror = yyjson_mut_obj(doc);

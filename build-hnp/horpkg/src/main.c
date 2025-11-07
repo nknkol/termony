@@ -33,6 +33,43 @@ int hdc_is_connected(void);
 int hdc_connect_port(const char *port);
 void print_prompt(const char *msg);
 
+static int attempt_connect_with_port(const char *port, int announce_cached) {
+    if (!port || port[0] == '\0') {
+        return 0;
+    }
+
+    if (announce_cached) {
+        print_info_fmt("Trying cached HDC port: %s", port);
+    }
+
+    if (hdc_connect_port(port) != 0) {
+        return 0;
+    }
+
+    if (!hdc_is_connected()) {
+        return 0;
+    }
+
+    print_success("Device connected successfully.");
+    return 1;
+}
+
+static void persist_hdc_port_if_needed(const char *port) {
+    if (!port || port[0] == '\0') {
+        return;
+    }
+
+    if (strncmp(g_config.last_hdc_port, port, sizeof(g_config.last_hdc_port)) == 0) {
+        return; // already stored
+    }
+
+    strncpy(g_config.last_hdc_port, port, sizeof(g_config.last_hdc_port) - 1);
+    g_config.last_hdc_port[sizeof(g_config.last_hdc_port) - 1] = '\0';
+    if (config_save() != 0) {
+        log_warn("Failed to persist cached HDC port.");
+    }
+}
+
 int main(int argc, char *argv[]) {
 
     log_level_t level = LOG_LEVEL_INFO;
@@ -76,46 +113,43 @@ int main(int argc, char *argv[]) {
         
         // 2. 检查连接状态
         if (!hdc_is_connected()) {
-            print_error("HDC device not connected.");
-            print_prompt("Please connect your HarmonyOS device via HDC.");
-            print_prompt("Check connection: 'hdc list targets'");
-            
-            // --- 新增的交互式连接逻辑 ---
-            print_prompt("Enter <port> to connect (e.g., 38201) or press [Enter] to quit:");
-            
-            char port_input[32];
-            if (fgets(port_input, sizeof(port_input), stdin) != NULL) {
-                // 移除 fgets 带来的换行符
-                port_input[strcspn(port_input, "\n")] = 0;
+            int connected = 0;
+
+            // 2.1 自动尝试使用缓存端口
+            if (g_config.last_hdc_port[0] != '\0') {
+                connected = attempt_connect_with_port(g_config.last_hdc_port, 1);
+                if (!connected) {
+                    log_warn("Cached HDC port failed. You'll be prompted for a new port.");
+                }
+            }
+
+            if (!connected) {
+                print_error("HDC device not connected.");
+                print_prompt("Please connect your HarmonyOS device via HDC.");
+                print_prompt("Check connection: 'hdc list targets'");
+                print_prompt("Enter <port> to connect (e.g., 38201) or press [Enter] to quit:");
                 
-                // 检查用户是否输入了内容
-                if (strlen(port_input) > 0) {
+                char port_input[32];
+                if (fgets(port_input, sizeof(port_input), stdin) != NULL) {
+                    port_input[strcspn(port_input, "\n")] = 0;
                     
-                    if (hdc_connect_port(port_input) == 0) {
-                        // Connect 命令已执行, 再次检查连接状态
-                        if (!hdc_is_connected()) {
+                    if (strlen(port_input) > 0) {
+                        connected = attempt_connect_with_port(port_input, 0);
+                        if (!connected) {
                             print_error("Connection attempt failed.");
                             print_prompt("Ensure the port is correct and hdc-lite is working.");
-                            return 1; // 尝试连接后仍然失败，退出
+                            return 1;
                         }
-                        print_success("Device connected successfully.");
+                        persist_hdc_port_if_needed(port_input);
                     } else {
-                        // hdc_connect_port 返回错误 (例如 system() 失败)
-                        print_error("Failed to execute connection command.");
-                        return 1;
+                        print_info("Connection cancelled by user. Exiting.");
+                        return 1; 
                     }
                 } else {
-                    // 用户直接按了回车
-                    print_info("Connection cancelled by user. Exiting.");
-                    return 1; 
+                    print_error("Failed to read user input.");
+                    return 1;
                 }
-            } else {
-                // fgets 读取失败
-                print_error("Failed to read user input.");
-                return 1;
             }
-            // --- 交互式连接逻辑结束 ---
-
         }
         // 如果执行到这里，说明设备已连接
     }
