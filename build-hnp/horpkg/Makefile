@@ -15,7 +15,9 @@ all:
 	
 	mkdir -p build$(PREFIX)/horpkgbin
 	mkdir -p build$(PREFIX)/etc
+	mkdir -p build$(PREFIX)/share/horpkg/resources
 	cp -fv src/cacert.pem build$(PREFIX)/etc/
+	cp -rfv resources/. build$(PREFIX)/share/horpkg/resources/
 	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
 		-o build$(PREFIX)/horpkgbin/$(REAL_BINARY_NAME) \
 		src/*.c \

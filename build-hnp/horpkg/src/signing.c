@@ -571,7 +571,7 @@ int signing_ensure_provision_for_bundle(const user_info_t *user, const char *bun
     char profile_filename[256];
     snprintf(profile_filename, sizeof(profile_filename), "%s.p7b", bundle_name);
 
-    char *local_path = get_config_path(profile_filename);
+    char *local_path = get_provision_path(profile_filename);
     if (!local_path) {
         log_error("Failed to construct local profile path.");
         return -1;

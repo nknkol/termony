@@ -224,8 +224,8 @@ int sign_hap(const char *unsigned_hap_path, const char *bundle_name, const char 
     }
     
     // 4. 获取其他签名文件路径
-    char *keystore_path = get_config_path("horpkg.p12");
-    char *cert_path = get_config_path("horpkg.cer"); // hapsigntool 需要 appCertFile
+    char *keystore_path = get_signature_path("horpkg.p12");
+    char *cert_path = get_signature_path("horpkg.cer"); // hapsigntool 需要 appCertFile
     
     if (access(keystore_path, F_OK) != 0 || access(cert_path, F_OK) != 0) {
         log_error("Missing 'horpkg.p12' or 'horpkg.cer'.");

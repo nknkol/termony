@@ -10,6 +10,10 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <limits.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include "logger.h"
 
 void print_error_fmt(const char *fmt, ...) {
@@ -109,26 +113,190 @@ int create_dir_if_not_exists(const char *path) {
     return 0;
 }
 
-char* get_config_path(const char* filename) {
+static char* build_horpkg_path(const char *subdir, const char *filename) {
     const char *home_dir = getenv("HOME");
     if (!home_dir) {
         print_error("HOME environment variable not set.");
         return NULL;
     }
 
-    char base_path[256];
-    snprintf(base_path, sizeof(base_path), "%s/.horpkg", home_dir);
-    if (create_dir_if_not_exists(base_path) != 0) {
-         return NULL; 
+    size_t base_len = strlen(home_dir) + strlen("/.horpkg") + 1;
+    char *base_dir = malloc(base_len);
+    if (!base_dir) {
+        print_error("Failed to allocate memory for base configuration path.");
+        return NULL;
     }
-    
-    size_t len = strlen(home_dir) + strlen("/.horpkg/") + strlen(filename) + 1;
-    char* path = malloc(len);
-    if (path) {
-        snprintf(path, len, "%s/.horpkg/%s", home_dir, filename);
+    snprintf(base_dir, base_len, "%s/.horpkg", home_dir);
+
+    if (create_dir_if_not_exists(base_dir) != 0) {
+        free(base_dir);
+        return NULL;
     }
-    
-    return path;
+
+    char *target_dir = NULL;
+    if (subdir && subdir[0] != '\0') {
+        size_t target_len = strlen(base_dir) + 1 + strlen(subdir) + 1;
+        target_dir = malloc(target_len);
+        if (!target_dir) {
+            print_error("Failed to allocate memory for configuration subdirectory.");
+            free(base_dir);
+            return NULL;
+        }
+        snprintf(target_dir, target_len, "%s/%s", base_dir, subdir);
+        if (create_dir_if_not_exists(target_dir) != 0) {
+            free(base_dir);
+            free(target_dir);
+            return NULL;
+        }
+    } else {
+        target_dir = strdup(base_dir);
+        if (!target_dir) {
+            print_error("Failed to duplicate base directory path.");
+            free(base_dir);
+            return NULL;
+        }
+    }
+    free(base_dir);
+
+    const char *name = filename ? filename : "";
+    size_t final_len = strlen(target_dir) + (name[0] ? 1 + strlen(name) : 0) + 1;
+    char *full_path = malloc(final_len);
+    if (!full_path) {
+        print_error("Failed to allocate memory for configuration path.");
+        free(target_dir);
+        return NULL;
+    }
+
+    if (name[0]) {
+        snprintf(full_path, final_len, "%s/%s", target_dir, name);
+    } else {
+        snprintf(full_path, final_len, "%s", target_dir);
+    }
+
+    free(target_dir);
+    return full_path;
+}
+
+char* get_config_path(const char* filename) {
+    return build_horpkg_path(NULL, filename);
+}
+
+char* get_signature_path(const char* filename) {
+    return build_horpkg_path("signature", filename);
+}
+
+char* get_provision_path(const char* filename) {
+    return build_horpkg_path("provision", filename);
+}
+
+static int get_executable_dir(char *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size == 0) {
+        return -1;
+    }
+
+#if defined(__APPLE__)
+    uint32_t size = (uint32_t)buffer_size;
+    if (_NSGetExecutablePath(buffer, &size) != 0) {
+        print_warning("Unable to determine executable path on macOS (buffer too small).");
+        return -1;
+    }
+    char resolved[PATH_MAX];
+    if (!realpath(buffer, resolved)) {
+        print_warning("Failed to resolve executable path on macOS.");
+        return -1;
+    }
+    strncpy(buffer, resolved, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+#elif defined(__linux__)
+    ssize_t len = readlink("/proc/self/exe", buffer, buffer_size - 1);
+    if (len == -1) {
+        print_warning("Failed to read /proc/self/exe to determine executable path.");
+        return -1;
+    }
+    buffer[len] = '\0';
+#else
+    (void)buffer;
+    (void)buffer_size;
+    return -1;
+#endif
+
+    char *last_slash = strrchr(buffer, '/');
+    if (!last_slash) {
+        return -1;
+    }
+    *last_slash = '\0';
+    return 0;
+}
+
+static int build_candidate_path(const char *dir, const char *filename, char *out_path, size_t out_size) {
+    if (!dir || !filename || !out_path || out_size == 0) {
+        return -1;
+    }
+
+    int written = snprintf(out_path, out_size, "%s/%s", dir, filename);
+    if (written < 0 || (size_t)written >= out_size) {
+        return -1;
+    }
+    if (access(out_path, R_OK) == 0) {
+        return 0;
+    }
+    return -1;
+}
+
+int horpkg_find_resource(const char *filename, char *out_path, size_t out_size) {
+    if (!filename || !out_path || out_size == 0) {
+        return -1;
+    }
+
+    const char *env_dir = getenv("HORPKG_RESOURCES_DIR");
+    if (env_dir && env_dir[0]) {
+        if (build_candidate_path(env_dir, filename, out_path, out_size) == 0) {
+            return 0;
+        }
+    }
+
+    char exec_dir[PATH_MAX] = {0};
+    if (get_executable_dir(exec_dir, sizeof(exec_dir)) == 0) {
+        const char *relative_dirs[] = {
+            "resources",
+            "../resources",
+            "../../resources",
+            "../share/horpkg/resources",
+            "../../share/horpkg/resources",
+            NULL
+        };
+        for (int i = 0; relative_dirs[i] != NULL; i++) {
+            char candidate_dir[PATH_MAX];
+            int dir_written = snprintf(candidate_dir, sizeof(candidate_dir), "%s/%s", exec_dir, relative_dirs[i]);
+            if (dir_written < 0 || (size_t)dir_written >= sizeof(candidate_dir)) {
+                continue;
+            }
+            if (build_candidate_path(candidate_dir, filename, out_path, out_size) == 0) {
+                return 0;
+            }
+        }
+
+        if (build_candidate_path(exec_dir, filename, out_path, out_size) == 0) {
+            return 0;
+        }
+    }
+
+    const char *fallback_dirs[] = {
+        "./resources",
+        "../resources",
+        "/usr/local/share/horpkg/resources",
+        "/usr/share/horpkg/resources",
+        NULL
+    };
+
+    for (int i = 0; fallback_dirs[i] != NULL; i++) {
+        if (build_candidate_path(fallback_dirs[i], filename, out_path, out_size) == 0) {
+            return 0;
+        }
+    }
+
+    log_debug("Resource '%s' not found in known locations.", filename);
+    return -1;
 }
 
 /**

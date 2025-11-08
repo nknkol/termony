@@ -18,7 +18,8 @@ PKGS=zlib \
     busybox \
 	bzip2 \
 	hapsigntool \
-	binarysigntool
+	binarysigntool \
+	elf-loader
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -39,7 +40,8 @@ PKGS=zlib \
     busybox \
 	bzip2 \
 	hapsigntool \
-	binarysigntool
+	binarysigntool \
+	elf-loader
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
