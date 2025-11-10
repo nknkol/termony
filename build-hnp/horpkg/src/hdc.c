@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE // [!] 为 popen/pclose 添加
+#include <stdbool.h>
 #include "hdc.h"
 #include "logger.h"
 #include "utils.h" // [!] 添加
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/wait.h>
 
 // 内部助手函数：修剪字符串前后的空白符
 static void trim_whitespace_inplace(char *str) {
@@ -27,6 +29,18 @@ static void trim_whitespace_inplace(char *str) {
         end--;
     }
     *(end + 1) = '\0';
+}
+
+static bool line_has_error_token(const char *line) {
+    if (!line) return false;
+    char lower[512];
+    size_t len = strlen(line);
+    if (len >= sizeof(lower)) len = sizeof(lower) - 1;
+    for (size_t i = 0; i < len; i++) {
+        lower[i] = (char)tolower((unsigned char)line[i]);
+    }
+    lower[len] = '\0';
+    return strstr(lower, "error") != NULL;
 }
 
 /**
@@ -123,11 +137,34 @@ int hdc_install_hap(const char *file_path, const char *bundleName, hdc_install_c
     print_info_fmt("Executing HDC command: %s", cmd);
     fflush(stdout);
 
-    // [!] 注意: system() 会阻塞并打印 hdc-lite 的输出
-    hdc_ret = system(cmd);
+    FILE *pipe = popen(cmd, "r");
+    if (!pipe) {
+        print_error("Failed to spawn hdc-lite process.");
+        return -1;
+    }
 
-    if (hdc_ret != 0) {
-        print_error_fmt("HDC install command failed with exit code %d.", hdc_ret);
+    char output_line[512];
+    int saw_error = 0;
+    while (fgets(output_line, sizeof(output_line), pipe)) {
+        fputs(output_line, stdout);
+        if (line_has_error_token(output_line)) {
+            saw_error = 1;
+        }
+    }
+
+    int status = pclose(pipe);
+    if (status == -1) {
+        print_error("Failed to retrieve hdc-lite exit status.");
+        return -1;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        print_error_fmt("HDC install command failed with exit code %d.", WEXITSTATUS(status));
+        return -1;
+    }
+
+    if (saw_error) {
+        print_error("HDC reported error messages during installation.");
         return -1;
     }
 

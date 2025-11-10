@@ -15,11 +15,13 @@ PKGS=zlib \
 	hdc-lite \
 	libzip \
     horpkg \
+    zig \
     busybox \
 	bzip2 \
 	hapsigntool \
 	binarysigntool \
-	elf-loader
+	elf-loader \
+	restool
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -37,11 +39,13 @@ PKGS=zlib \
 	hdc-lite \
 	libzip \
     horpkg \
+    zig \
     busybox \
 	bzip2 \
 	hapsigntool \
 	binarysigntool \
-	elf-loader
+	elf-loader \
+	restool
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1

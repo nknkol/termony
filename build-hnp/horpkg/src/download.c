@@ -53,7 +53,7 @@ int download_file(const char *url, const char *outfile) {
         const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo);

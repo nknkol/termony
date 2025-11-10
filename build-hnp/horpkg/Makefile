@@ -17,7 +17,7 @@ all:
 	mkdir -p build$(PREFIX)/etc
 	mkdir -p build$(PREFIX)/share/horpkg/resources
 	cp -fv src/cacert.pem build$(PREFIX)/etc/
-	cp -rfv resources/. build$(PREFIX)/share/horpkg/resources/
+	cp -afv resources/. build$(PREFIX)/share/horpkg/resources/
 	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
 		-o build$(PREFIX)/horpkgbin/$(REAL_BINARY_NAME) \
 		src/*.c \
@@ -25,8 +25,13 @@ all:
 		-L../sysroot/lib -lcurl -lyyjson -lzip
 
 	mkdir -p ../sysroot
-	cp -rfv build/$(PREFIX)/. ../sysroot | tee file.lst
-	
+	@if command -v rsync >/dev/null 2>&1; then \
+		rsync -a --delete build/$(PREFIX)/ ../sysroot > file.lst; \
+	else \
+		echo "rsync not found, falling back to cp -a (without delete support)." >&2; \
+		cp -afv build/$(PREFIX)/. ../sysroot | tee file.lst; \
+	fi
+
 	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
 		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \
 		echo "Please create it and ensure its TARGET_COMMAND_PATH points to:" >&2; \

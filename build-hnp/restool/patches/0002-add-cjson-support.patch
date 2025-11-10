@@ -1,0 +1,16 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,11 +19,13 @@
+ set(png_dir ${CMAKE_SOURCE_DIR}/../../third_party/libpng)
+ set(zlib_dir ${CMAKE_SOURCE_DIR}/../../third_party/zlib)
+ set(bound_checking_function_dir ${CMAKE_SOURCE_DIR}/../../third_party/bounds_checking_function)
++set(cjson_dir ${CMAKE_SOURCE_DIR}/../../third_party/cjson)
+ 
+ include_directories(include)
+ include_directories(${jsoncpp_dir}/include)
+ include_directories(${png_dir}/)
+ include_directories(${bound_checking_function_dir}/include)
++include_directories(${cjson_dir})
+ 
+ aux_source_directory(src restool_source)

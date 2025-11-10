@@ -1,0 +1,38 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -20,12 +20,14 @@
+ set(zlib_dir ${CMAKE_SOURCE_DIR}/../../third_party/zlib)
+ set(bound_checking_function_dir ${CMAKE_SOURCE_DIR}/../../third_party/bounds_checking_function)
+ set(cjson_dir ${CMAKE_SOURCE_DIR}/../../third_party/cjson)
++set(minizip_dir ${zlib_dir}/contrib/minizip)
+ 
+ include_directories(include)
+ include_directories(${jsoncpp_dir}/include)
+ include_directories(${png_dir}/)
+ include_directories(${bound_checking_function_dir}/include)
+ include_directories(${cjson_dir})
++include_directories(${minizip_dir})
+ 
+ aux_source_directory(src restool_source)
+ 
+@@ -40,6 +42,17 @@
+ 
+ aux_source_directory(${png_dir}/ png_source)
+ add_library(png STATIC ${png_source})
++set(cjson_sources
++    ${cjson_dir}/cJSON.c
++    ${cjson_dir}/cJSON_Utils.c
++)
++add_library(cjson STATIC ${cjson_sources})
++set(minizip_sources
++    ${minizip_dir}/ioapi.c
++    ${minizip_dir}/unzip.c
++    ${minizip_dir}/mztools.c
++)
++add_library(minizip STATIC ${minizip_sources})
+ 
+ add_executable(restool ${restool_source})
+-target_link_libraries(restool jsoncpp securec zlib png)
+\ No newline at end of file
++target_link_libraries(restool jsoncpp securec zlib png cjson minizip)

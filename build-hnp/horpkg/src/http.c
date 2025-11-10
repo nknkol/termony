@@ -88,7 +88,7 @@ http_response_t* http_get_with_custom_headers(const char *url, struct curl_slist
     curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
@@ -152,7 +152,7 @@ http_response_t* http_get_authed(const char *url, const struct user_info_s *user
     curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
@@ -224,7 +224,7 @@ http_response_t* http_delete_authed(const char *url, const struct user_info_s *u
     curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);
@@ -289,7 +289,7 @@ http_response_t* http_post_authed(const char *url, const struct user_info_s *use
     curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 
     res = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response->status_code);

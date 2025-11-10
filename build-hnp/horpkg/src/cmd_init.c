@@ -6,11 +6,17 @@
 #include "logger.h"
 #include "hap_parser.h"
 #include "hdc.h"
+#include "install.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h> // for free()
 #include <string.h> // for memset
 #include <unistd.h> // for access
+#include <time.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 // [!] 注意: `cmd_install` 已移至 `cmd_install.c`
 // [!] 移除了 `download_file` 原型 (已在 `download.h` 中)
@@ -27,8 +33,28 @@ static int install_runtime_dependency(char *installed_from, size_t installed_fro
         log_warn("Failed to parse bundleName from runtime package. Using default '%s'.", bundle_name);
     }
 
+    char *tmp_dir = get_config_path("tmp");
+    if (!tmp_dir) {
+        return -1;
+    }
+    create_dir_if_not_exists(tmp_dir);
+
+    char signed_path[PATH_MAX];
+    snprintf(signed_path, sizeof(signed_path), "%s/runtime_%ld.signed.hap", tmp_dir, (long)time(NULL));
+
+    print_info_fmt("Signing runtime package '%s' before installation...", bundle_name);
+    if (sign_hap(runtime_path, bundle_name, signed_path) != 0) {
+        free(tmp_dir);
+        unlink(signed_path);
+        return -1;
+    }
+
     print_info_fmt("Installing runtime package '%s'...", bundle_name);
-    if (hdc_install_hap(runtime_path, bundle_name, NULL) != 0) {
+    int install_result = hdc_install_hap(signed_path, bundle_name, NULL);
+    unlink(signed_path);
+    free(tmp_dir);
+
+    if (install_result != 0) {
         print_error_fmt("Runtime package '%s' installation failed.", bundle_name);
         return -1;
     }

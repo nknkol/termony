@@ -16,6 +16,21 @@
 #endif
 #include "logger.h"
 
+static void canonicalize_path_inplace(char *path, size_t buffer_size) {
+    if (!path || buffer_size == 0 || path[0] == '\0') {
+        return;
+    }
+#if defined(PATH_MAX)
+    char resolved[PATH_MAX];
+    if (realpath(path, resolved)) {
+        strncpy(path, resolved, buffer_size - 1);
+        path[buffer_size - 1] = '\0';
+        return;
+    }
+#endif
+    (void)buffer_size;
+}
+
 void print_error_fmt(const char *fmt, ...) {
     char buffer[512];
     va_list args;
@@ -238,6 +253,7 @@ static int build_candidate_path(const char *dir, const char *filename, char *out
         return -1;
     }
     if (access(out_path, R_OK) == 0) {
+        canonicalize_path_inplace(out_path, out_size);
         return 0;
     }
     return -1;

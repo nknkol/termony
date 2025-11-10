@@ -1,0 +1,12 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -30,6 +30,8 @@ include_directories(${cjson_dir})
+ include_directories(${minizip_dir})
+ 
+ aux_source_directory(src restool_source)
++aux_source_directory(src/cmd cmd_sources)
++list(APPEND restool_source ${cmd_sources})
+ 
+ aux_source_directory(${bound_checking_function_dir}/src lib_sec_source)
+ add_library(securec STATIC ${lib_sec_source})

@@ -7,6 +7,8 @@
 #include "hap_parser.h" // [!]
 #include "signing.h"  // [!]
 #include "auth.h"     // [!]
+#include "shim_installer.h"
+#include "core_hnp_installer.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -112,6 +114,11 @@ int install_from_repository(const char *package_name) {
     }
     
     yyjson_val *pkg_root = yyjson_doc_get_root(pkg_doc);
+    const char *version_str = yyjson_get_str(yyjson_obj_get(pkg_root, "version"));
+    char package_version[64] = "0.0.0";
+    if (version_str && version_str[0]) {
+        snprintf(package_version, sizeof(package_version), "%s", version_str);
+    }
     yyjson_val *binaries = yyjson_obj_get(pkg_root, "binaries");
     yyjson_val *arch_bin = yyjson_obj_get(binaries, "arm64-v8a"); // 硬编码架构
     yyjson_val *hnp_info = yyjson_obj_get(arch_bin, "public_hnp");
@@ -139,23 +146,18 @@ int install_from_repository(const char *package_name) {
     // TODO: 实现SHA256校验逻辑
     log_info("Checksum verified");
 
-    // [!]
-    // [!] 仓库安装 (HNP) 流程
-    // [!]
-    log_info("Repository HNP install logic not yet implemented.");
-    log_warn("HNP downloaded, but signing and installation steps are pending.");
-    // 1. 解压 HNP
-    // 2. 找到 .hap / .hsp
-    // 3. (循环) 对每个 HAP/HSP:
-    //    a. 调用 install_local_hap(hap_path)
-    // 4. 清理
-    
-    // 占位符：
-    // snprintf(temp_hap_path, ...);
-    // install_local_hap(temp_hap_path);
+    if (shim_install_from_hnp(package_name, out_filename) != 0) {
+        yyjson_doc_free(pkg_doc);
+        return 1;
+    }
 
+    if (core_install_hnp(package_name, package_version, out_filename, hnp_url, hnp_sha256) != 0) {
+        yyjson_doc_free(pkg_doc);
+        return 1;
+    }
 
-    printf("\n%s🎉 Installation complete!%s\n", COLOR_GREEN, COLOR_RESET);
+    printf("\n%s🎉 Runtime and core assets updated for %s!%s\n",
+           COLOR_GREEN, package_name, COLOR_RESET);
     
     yyjson_doc_free(pkg_doc);
     return 0;
