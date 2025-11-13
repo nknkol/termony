@@ -18,10 +18,11 @@ PKGS=zlib \
     zig \
     busybox \
 	bzip2 \
-	hapsigntool \
 	binarysigntool \
 	elf-loader \
-	restool
+	restool \
+	hnpcil \
+	openharmonytoolchains
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -42,10 +43,11 @@ PKGS=zlib \
     zig \
     busybox \
 	bzip2 \
-	hapsigntool \
 	binarysigntool \
 	elf-loader \
-	restool
+	restool \
+	hnpcil \
+	openharmonytoolchains
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1

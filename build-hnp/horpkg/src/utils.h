@@ -30,6 +30,7 @@ void print_success_fmt(const char *fmt, ...);
 char* get_config_path(const char* filename);
 char* get_signature_path(const char* filename);
 char* get_provision_path(const char* filename);
+int horpkg_self_dir(char *buffer, size_t buffer_size);
 int create_dir_if_not_exists(const char *path);
 int horpkg_find_resource(const char *filename, char *out_path, size_t out_size);
 // HDC 和初始化工具

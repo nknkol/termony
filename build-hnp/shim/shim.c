@@ -44,6 +44,23 @@ static const struct {
 
 /*
  * -----------------------------------------------------------------
+ * 可选：命令行前缀 (例如 "-jar <file>")
+ * -----------------------------------------------------------------
+ */
+
+#ifdef SHIM_EXTRA_ARGS
+#define X(val) val,
+static const char *EXTRA_ARGS[] = {
+    SHIM_EXTRA_ARGS
+    NULL
+};
+#undef X
+#else
+static const char *EXTRA_ARGS[] = { NULL };
+#endif
+
+/*
+ * -----------------------------------------------------------------
  * X-Macro 魔法结束
  * -----------------------------------------------------------------
  */
@@ -91,6 +108,35 @@ static void setup_library_path() {
     }
 }
 
+static size_t count_extra_args(void) {
+    size_t count = 0;
+    while (EXTRA_ARGS[count] != NULL) {
+        count++;
+    }
+    return count;
+}
+
+static char **build_exec_argv(int argc, char *argv[]) {
+    size_t extra = count_extra_args();
+    size_t total = 1 + extra + (argc > 1 ? (argc - 1) : 0);
+    char **new_argv = (char **)malloc((total + 1) * sizeof(char *));
+    if (new_argv == NULL) {
+        perror("shim: malloc failed for argv");
+        exit(126);
+    }
+
+    size_t idx = 0;
+    new_argv[idx++] = TARGET_COMMAND_PATH;
+    for (size_t i = 0; i < extra; ++i) {
+        new_argv[idx++] = (char *)EXTRA_ARGS[i];
+    }
+    for (int i = 1; i < argc; ++i) {
+        new_argv[idx++] = argv[i];
+    }
+    new_argv[idx] = NULL;
+    return new_argv;
+}
+
 int main(int argc, char *argv[]) {
     // 1. 设置库路径 (从 config.h 读取)
     setup_library_path();
@@ -100,13 +146,15 @@ int main(int argc, char *argv[]) {
         set_env_var(CUSTOM_ENV_VARS[i].name, CUSTOM_ENV_VARS[i].value);
     }
 
-    // 3. 执行目标命令 (从 config.h 读取)
-    execv(TARGET_COMMAND_PATH, argv);
+    // 3. 构造新的 argv (可插入 -jar 等前缀) 并执行目标命令
+    char **exec_argv = build_exec_argv(argc, argv);
+    execv(exec_argv[0], exec_argv);
 
     // --- 如果 execv 成功，代码永远不会执行到这里 ---
 
     fprintf(stderr, "shim: FATAL: Failed to execute target command: %s\n", TARGET_COMMAND_PATH);
     perror("shim: execv error");
+    free(exec_argv);
     
     return (errno == ENOENT) ? 127 : 126;
 }

@@ -204,7 +204,7 @@ char* get_provision_path(const char* filename) {
     return build_horpkg_path("provision", filename);
 }
 
-static int get_executable_dir(char *buffer, size_t buffer_size) {
+int horpkg_self_dir(char *buffer, size_t buffer_size) {
     if (!buffer || buffer_size == 0) {
         return -1;
     }
@@ -272,7 +272,7 @@ int horpkg_find_resource(const char *filename, char *out_path, size_t out_size) 
     }
 
     char exec_dir[PATH_MAX] = {0};
-    if (get_executable_dir(exec_dir, sizeof(exec_dir)) == 0) {
+    if (horpkg_self_dir(exec_dir, sizeof(exec_dir)) == 0) {
         const char *relative_dirs[] = {
             "resources",
             "../resources",

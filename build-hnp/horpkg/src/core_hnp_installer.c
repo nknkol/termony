@@ -13,17 +13,22 @@
 #include <yyjson.h>
 #include <zip.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <spawn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+extern char **environ;
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -58,11 +63,22 @@ static int append_hnp_to_hap(const core_paths_t *paths,
                              const char *hnp_path,
                              const char *entry_path);
 static int rewrite_module_json(zip_t *hap, const core_state_entry_t *entries, size_t count);
-static int install_core_bundle(const core_paths_t *paths);
+static int install_core_bundle(const core_paths_t *paths, const char *bundle_name);
 static int core_state_load(const core_paths_t *paths, core_state_entry_t **entries_out, size_t *count_out);
 static int core_state_save(const core_paths_t *paths, const core_state_entry_t *entries, size_t count);
 static int ensure_local_entry_file(const core_paths_t *paths, core_state_entry_t *entry);
 static int rebuild_core_hap(const core_paths_t *paths, core_state_entry_t *entries, size_t count);
+static int ensure_dir_recursive(const char *path);
+static int ensure_parent_dir(const char *path);
+static int remove_dir_recursive(const char *path);
+static int recreate_directory(const char *path);
+static int extract_hap_contents(const char *hap_path, const char *dest_dir);
+static int run_command(char *const argv[]);
+static int find_in_path(const char *name, char *out_path, size_t out_size);
+static int locate_restool(char *out_path, size_t out_size);
+static int zip_add_or_replace(zip_t *hap, const char *entry_name, const char *file_path);
+static int replace_hap_entry(const char *hap_path, const char *entry_name, const char *file_path);
+static int regenerate_resources_index(const core_paths_t *paths, const char *bundle_name);
 
 static void safe_copy_string(char *dst, size_t dst_size, const char *src) {
     if (!dst || dst_size == 0) return;
@@ -72,6 +88,387 @@ static void safe_copy_string(char *dst, size_t dst_size, const char *src) {
     } else {
         dst[0] = '\0';
     }
+}
+
+static bool packages_array_contains(yyjson_mut_val *packages, const char *file_name) {
+    if (!packages || !file_name || !file_name[0]) {
+        return false;
+    }
+    size_t idx, max;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(packages, idx, max, item) {
+        const char *pkg = yyjson_mut_get_str(yyjson_mut_obj_get(item, "package"));
+        if (pkg && strcmp(pkg, file_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int ensure_dir_recursive(const char *path) {
+    if (!path || !path[0]) {
+        return -1;
+    }
+    char buffer[PATH_MAX];
+    if (snprintf(buffer, sizeof(buffer), "%s", path) < 0) {
+        return -1;
+    }
+    for (char *p = buffer + 1; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(buffer, 0755) != 0 && errno != EEXIST) {
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+    if (mkdir(buffer, 0755) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    return 0;
+}
+
+static int ensure_parent_dir(const char *path) {
+    if (!path) {
+        return -1;
+    }
+    char buffer[PATH_MAX];
+    if (snprintf(buffer, sizeof(buffer), "%s", path) < 0) {
+        return -1;
+    }
+    char *slash = strrchr(buffer, '/');
+    if (!slash) {
+        return 0;
+    }
+    *slash = '\0';
+    if (buffer[0] == '\0') {
+        return 0;
+    }
+    return ensure_dir_recursive(buffer);
+}
+
+static int remove_dir_recursive(const char *path) {
+    if (!path || !path[0]) {
+        return -1;
+    }
+    DIR *dir = opendir(path);
+    if (!dir) {
+        if (errno == ENOENT) {
+            return 0;
+        }
+        return -1;
+    }
+    struct dirent *entry;
+    int status = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char child[PATH_MAX];
+        if (snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) < 0) {
+            status = -1;
+            break;
+        }
+        struct stat st;
+        if (lstat(child, &st) != 0) {
+            status = -1;
+            break;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            if (remove_dir_recursive(child) != 0) {
+                status = -1;
+                break;
+            }
+        } else {
+            if (unlink(child) != 0) {
+                status = -1;
+                break;
+            }
+        }
+    }
+    closedir(dir);
+    if (status == 0 && rmdir(path) != 0) {
+        status = -1;
+    }
+    return status;
+}
+
+static int recreate_directory(const char *path) {
+    if (remove_dir_recursive(path) != 0) {
+        return -1;
+    }
+    return create_dir_if_not_exists(path);
+}
+
+static int extract_hap_contents(const char *hap_path, const char *dest_dir) {
+    if (recreate_directory(dest_dir) != 0) {
+        return -1;
+    }
+    int err = 0;
+    zip_t *archive = zip_open(hap_path, ZIP_RDONLY, &err);
+    if (!archive) {
+        log_error("Failed to open %s for extraction (zip err=%d).", hap_path, err);
+        return -1;
+    }
+
+    zip_int64_t count = zip_get_num_entries(archive, 0);
+    for (zip_int64_t i = 0; i < count; i++) {
+        const char *name = zip_get_name(archive, i, 0);
+        if (!name) {
+            continue;
+        }
+        char out_path[PATH_MAX];
+        int written = snprintf(out_path, sizeof(out_path), "%s/%s", dest_dir, name);
+        if (written < 0 || (size_t)written >= sizeof(out_path)) {
+            zip_close(archive);
+            return -1;
+        }
+        size_t name_len = strlen(name);
+        if (name_len > 0 && name[name_len - 1] == '/') {
+            if (ensure_dir_recursive(out_path) != 0) {
+                zip_close(archive);
+                return -1;
+            }
+            continue;
+        }
+
+        zip_file_t *zf = zip_fopen_index(archive, i, 0);
+        if (!zf) {
+            zip_close(archive);
+            return -1;
+        }
+        if (ensure_parent_dir(out_path) != 0) {
+            zip_fclose(zf);
+            zip_close(archive);
+            return -1;
+        }
+        FILE *out = fopen(out_path, "wb");
+        if (!out) {
+            zip_fclose(zf);
+            zip_close(archive);
+            return -1;
+        }
+        char buffer[16384];
+        zip_int64_t read_bytes;
+        while ((read_bytes = zip_fread(zf, buffer, sizeof(buffer))) > 0) {
+            if (fwrite(buffer, 1, (size_t)read_bytes, out) != (size_t)read_bytes) {
+                fclose(out);
+                zip_fclose(zf);
+                zip_close(archive);
+                return -1;
+            }
+        }
+        fclose(out);
+        zip_fclose(zf);
+        if (read_bytes < 0) {
+            zip_close(archive);
+            return -1;
+        }
+    }
+    zip_close(archive);
+    return 0;
+}
+
+static int run_command(char *const argv[]) {
+    if (!argv || !argv[0]) {
+        return -1;
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        log_error("Failed to create pipe for %s: %s", argv[0], strerror(errno));
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        log_error("Failed to fork for %s: %s", argv[0], strerror(errno));
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
+
+    if (pid == 0) {
+        // child
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    FILE *stream = fdopen(pipefd[0], "r");
+    if (!stream) {
+        log_error("Failed to read output from %s", argv[0]);
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return -1;
+    }
+
+    char line[512];
+    while (fgets(line, sizeof(line), stream)) {
+        size_t len = strlen(line);
+        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[len - 1] = '\0';
+        }
+        log_info("[restool] %s", line);
+    }
+    fclose(stream);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        log_error("Failed to wait for %s: %s", argv[0], strerror(errno));
+        return -1;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        log_error("%s exited with status %d", argv[0], status);
+        return -1;
+    }
+    return 0;
+}
+
+static int find_in_path(const char *name, char *out_path, size_t out_size) {
+    if (!name || !out_path || out_size == 0) {
+        return -1;
+    }
+    const char *path_env = getenv("PATH");
+    if (!path_env) {
+        return -1;
+    }
+    char *paths = strdup(path_env);
+    if (!paths) {
+        return -1;
+    }
+    int result = -1;
+    char *saveptr = NULL;
+    for (char *token = strtok_r(paths, ":", &saveptr); token; token = strtok_r(NULL, ":", &saveptr)) {
+        char candidate[PATH_MAX];
+        int written = snprintf(candidate, sizeof(candidate), "%s/%s", token, name);
+        if (written < 0 || (size_t)written >= sizeof(candidate)) {
+            continue;
+        }
+        if (access(candidate, X_OK) == 0) {
+            if ((size_t)written < out_size) {
+                snprintf(out_path, out_size, "%s", candidate);
+                result = 0;
+            }
+            break;
+        }
+    }
+    free(paths);
+    return result;
+}
+
+static int locate_restool(char *out_path, size_t out_size) {
+    if (!out_path || out_size == 0) {
+        return -1;
+    }
+    const char *override = getenv("HORPKG_RESTOOL");
+    if (override && override[0]) {
+        if (access(override, X_OK) == 0) {
+            snprintf(out_path, out_size, "%s", override);
+            return 0;
+        }
+        log_error("HORPKG_RESTOOL is set but not executable: %s", override);
+        return -1;
+    }
+
+    char exec_dir[PATH_MAX];
+    if (horpkg_self_dir(exec_dir, sizeof(exec_dir)) == 0) {
+        char candidate[PATH_MAX];
+        int written = snprintf(candidate, sizeof(candidate), "%s/restool", exec_dir);
+        if (written > 0 && (size_t)written < sizeof(candidate) && access(candidate, X_OK) == 0) {
+            snprintf(out_path, out_size, "%s", candidate);
+            return 0;
+        }
+    }
+
+    if (find_in_path("restool", out_path, out_size) == 0) {
+        return 0;
+    }
+
+    log_error("restool executable not found. Ensure it is in PATH or set HORPKG_RESTOOL.");
+    return -1;
+}
+
+static int replace_hap_entry(const char *hap_path, const char *entry_name, const char *file_path) {
+    int err = 0;
+    zip_t *hap = zip_open(hap_path, ZIP_CHECKCONS, &err);
+    if (!hap) {
+        log_error("Failed to open %s for updating %s (zip err=%d).", hap_path, entry_name, err);
+        return -1;
+    }
+    int rc = zip_add_or_replace(hap, entry_name, file_path);
+    if (zip_close(hap) != 0) {
+        return -1;
+    }
+    return rc;
+}
+
+static int regenerate_resources_index(const core_paths_t *paths, const char *bundle_name) {
+    if (!paths || !bundle_name || !bundle_name[0]) {
+        return -1;
+    }
+    char restool_path[PATH_MAX];
+    if (locate_restool(restool_path, sizeof(restool_path)) != 0) {
+        return -1;
+    }
+
+    char extract_dir[PATH_MAX];
+    char restool_out[PATH_MAX];
+    snprintf(extract_dir, sizeof(extract_dir), "%s/restool_extract", paths->tmp_dir);
+    snprintf(restool_out, sizeof(restool_out), "%s/restool_out", paths->tmp_dir);
+    log_info("restool input dir: %s", extract_dir);
+    log_info("restool output dir: %s", restool_out);
+
+    if (extract_hap_contents(paths->hap_path, extract_dir) != 0) {
+        log_error("Failed to extract %s for resources.index regeneration.", paths->hap_path);
+        return -1;
+    }
+    if (recreate_directory(restool_out) != 0) {
+        return -1;
+    }
+
+    char module_json_path[PATH_MAX];
+    snprintf(module_json_path, sizeof(module_json_path), "%s/module.json", extract_dir);
+    if (access(module_json_path, R_OK) != 0) {
+        log_error("module.json missing at %s", module_json_path);
+        return -1;
+    }
+    char header_path[PATH_MAX];
+    snprintf(header_path, sizeof(header_path), "%s/ResourceTable.txt", restool_out);
+
+    log_info("Regenerating resources.index using restool.");
+    char *argv[] = {
+        restool_path,
+        "-i", extract_dir,
+        "-j", module_json_path,
+        "-p", (char *)bundle_name,
+        "-o", restool_out,
+        "-r", header_path,
+        "-f",
+        NULL
+    };
+    if (run_command(argv) != 0) {
+        log_error("restool failed while rebuilding resources.index.");
+        return -1;
+    }
+
+    char new_index_path[PATH_MAX];
+    snprintf(new_index_path, sizeof(new_index_path), "%s/resources.index", restool_out);
+    if (access(new_index_path, R_OK) != 0) {
+        log_error("restool did not produce %s", new_index_path);
+        return -1;
+    }
+    log_info("restool produced resources.index at %s", new_index_path);
+
+    if (replace_hap_entry(paths->hap_path, "resources.index", new_index_path) != 0) {
+        return -1;
+    }
+
+    return 0;
 }
 
 int core_install_hnp(const char *package_name, const char *package_version, const char *hnp_path, const char *source_url, const char *source_sha256) {
@@ -385,20 +782,23 @@ static int rewrite_module_json(zip_t *hap, const core_state_entry_t *entries, si
         yyjson_mut_obj_add_val(mut_doc, root, "module", module);
     }
 
-    yyjson_mut_val *packages = yyjson_mut_obj_get(module, "hnpPackages");
-    if (!packages || !yyjson_mut_is_arr(packages)) {
-        packages = yyjson_mut_arr(mut_doc);
-        yyjson_mut_obj_add_val(mut_doc, module, "hnpPackages", packages);
-    } else {
-        yyjson_mut_arr_clear(packages);
-    }
+    yyjson_mut_val *packages = yyjson_mut_arr(mut_doc);
 
     for (size_t i = 0; i < count; i++) {
+        if (!entries[i].file_name[0]) {
+            continue;
+        }
+        if (packages_array_contains(packages, entries[i].file_name)) {
+            continue;
+        }
         yyjson_mut_val *new_pkg = yyjson_mut_obj(mut_doc);
         yyjson_mut_obj_add_str(mut_doc, new_pkg, "package", entries[i].file_name);
         yyjson_mut_obj_add_str(mut_doc, new_pkg, "type", "public");
         yyjson_mut_arr_append(packages, new_pkg);
     }
+
+    yyjson_mut_obj_remove_keyn(module, "hnpPackages", strlen("hnpPackages"));
+    yyjson_mut_obj_add_val(mut_doc, module, "hnpPackages", packages);
 
     size_t out_len = 0;
     yyjson_write_flag write_flag = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_SLASHES;
@@ -572,6 +972,15 @@ static int rebuild_core_hap(const core_paths_t *paths, core_state_entry_t *entri
         return -1;
     }
 
+    char bundle_name[256];
+    if (hap_parser_get_bundle_name(paths->hap_path, bundle_name, sizeof(bundle_name)) != 0) {
+        log_error("Failed to parse bundle name from org.horpkg.core.hap");
+        return -1;
+    }
+    if (regenerate_resources_index(paths, bundle_name) != 0) {
+        return -1;
+    }
+
     for (size_t i = 0; i < count; i++) {
         if (ensure_local_entry_file(paths, &entries[i]) != 0) {
             return -1;
@@ -584,7 +993,7 @@ static int rebuild_core_hap(const core_paths_t *paths, core_state_entry_t *entri
         }
     }
 
-    if (install_core_bundle(paths) != 0) {
+    if (install_core_bundle(paths, bundle_name) != 0) {
         return -1;
     }
     log_info("rebuild_core_hap: installed updated core bundle to device");
@@ -593,21 +1002,25 @@ static int rebuild_core_hap(const core_paths_t *paths, core_state_entry_t *entri
     return 0;
 }
 
-static int install_core_bundle(const core_paths_t *paths) {
-    char bundle_name[256];
-    if (hap_parser_get_bundle_name(paths->hap_path, bundle_name, sizeof(bundle_name)) != 0) {
-        log_error("Failed to parse bundle name from org.horpkg.core.hap");
-        return -1;
+static int install_core_bundle(const core_paths_t *paths, const char *bundle_name) {
+    char parsed_bundle[256];
+    const char *name = bundle_name;
+    if (!name || !name[0]) {
+        if (hap_parser_get_bundle_name(paths->hap_path, parsed_bundle, sizeof(parsed_bundle)) != 0) {
+            log_error("Failed to parse bundle name from org.horpkg.core.hap");
+            return -1;
+        }
+        name = parsed_bundle;
     }
 
-    if (sign_hap(paths->hap_path, bundle_name, paths->signed_hap_path) != 0) {
+    if (sign_hap(paths->hap_path, name, paths->signed_hap_path) != 0) {
         log_error("Failed to sign patched org.horpkg.core.hap");
         return -1;
     }
 
-    if (hdc_install_hap(paths->signed_hap_path, bundle_name, NULL) != 0) {
+    if (hdc_install_hap(paths->signed_hap_path, name, NULL) != 0) {
         unlink(paths->signed_hap_path);
-        log_error("Device installation failed for %s", bundle_name);
+        log_error("Device installation failed for %s", name);
         return -1;
     }
 

@@ -255,6 +255,7 @@ int sign_hap(const char *unsigned_hap_path, const char *bundle_name, const char 
         "-outFile \"%s\" "      // (输出 HAP)
         "-keyPwd \"horpkg\" "   // (使用 init 中设置的密码)
         "-keystorePwd \"horpkg\" " // (使用 init 中设置的密码)
+        "-signCode 1 "
         "2>&1",
         lib_path,
         cert_path,
@@ -315,24 +316,46 @@ int install_local_hap(const char *hap_path) {
     create_dir_if_not_exists(tmp_dir); // 确保 tmp 目录存在
 
     char signed_hap_path[512];
-    // (创建临时签名文件)
-    snprintf(signed_hap_path, sizeof(signed_hap_path), "%s/horpkg_signed_%d.hap", tmp_dir, rand());
+    if (hap_path[0] == '/' || strstr(hap_path, ":/") != NULL) {
+        // 绝对路径或包含驱动器路径 -> 在同目录生成 .signed.hap
+        const char *last_sep = strrchr(hap_path, '/');
+        if (!last_sep) {
+            snprintf(signed_hap_path, sizeof(signed_hap_path), "%s.signed.hap", hap_path);
+        } else {
+            size_t prefix_len = last_sep - hap_path;
+            char dir_prefix[512];
+            snprintf(dir_prefix, sizeof(dir_prefix), "%.*s", (int)prefix_len, hap_path);
+            const char *filename = last_sep + 1;
+            char base_name[256];
+            snprintf(base_name, sizeof(base_name), "%s", filename);
+            char *dot = strrchr(base_name, '.');
+            if (dot) *dot = '\0';
+            snprintf(signed_hap_path, sizeof(signed_hap_path), "%s/%s.signed.hap", dir_prefix, base_name);
+        }
+    } else {
+        // 相对路径 -> 使用 tmp 目录
+        const char *filename = strrchr(hap_path, '/');
+        filename = filename ? filename + 1 : hap_path;
+        char base_name[256];
+        snprintf(base_name, sizeof(base_name), "%s", filename);
+        char *dot = strrchr(base_name, '.');
+        if (dot) *dot = '\0';
+        snprintf(signed_hap_path, sizeof(signed_hap_path), "%s/%s.signed.hap", tmp_dir, base_name);
+    }
     free(tmp_dir); // 释放路径
+
+    logger_log(LOG_LEVEL_INFO, NULL, 0, "Signing output will be saved to: %s", signed_hap_path);
 
     if (sign_hap(hap_path, bundle_name, signed_hap_path) != 0) {
         log_error("Failed to sign HAP file.");
-        unlink(signed_hap_path); 
+        unlink(signed_hap_path);
         return -1;
     }
-    print_info_fmt("Temporary signed HAP created at: %s", signed_hap_path);
+    logger_log(LOG_LEVEL_INFO, NULL, 0, "Signed HAP saved at: %s", signed_hap_path);
 
     // 4. 安装 HAP
     log_info("Step 3/3: Installing HAP via HDC...");
     int install_result = hdc_install_hap(signed_hap_path, bundle_name, local_install_prompt);
-
-    // 5. 清理
-    log_debug("Cleaning up temporary file: %s", signed_hap_path);
-    unlink(signed_hap_path);
     
     if (install_result != 0) {
         log_error("HDC installation failed or was cancelled.");
