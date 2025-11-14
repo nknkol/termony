@@ -22,7 +22,9 @@ PKGS=zlib \
 	elf-loader \
 	restool \
 	hnpcil \
-	openharmonytoolchains
+	openharmonytoolchains \
+	talloc \
+	proot
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -47,7 +49,9 @@ PKGS=zlib \
 	elf-loader \
 	restool \
 	hnpcil \
-	openharmonytoolchains
+	openharmonytoolchains \
+	talloc \
+	proot
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
