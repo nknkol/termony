@@ -23,8 +23,8 @@ PKGS=zlib \
 	restool \
 	hnpcil \
 	openharmonytoolchains \
-	talloc \
-	proot
+	apk-tools \
+	patchelf
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -50,8 +50,8 @@ PKGS=zlib \
 	restool \
 	hnpcil \
 	openharmonytoolchains \
-	talloc \
-	proot
+	apk-tools \
+	patchelf
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1

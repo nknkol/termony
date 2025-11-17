@@ -14,6 +14,8 @@
 #define SHIM_ENV_VARS \
     X("TMUX_TMPDIR", "/data/storage/el2/base/cache") \
     X("TMPDIR", "/data/storage/el2/base/cache") \
+    X("TMP", "/data/storage/el2/base/cache") \
+    X("TEMP", "/data/storage/el2/base/cache") \
     X("JAVA_TOOL_OPTIONS", "-Djava.io.tmpdir=/data/storage/el2/base/cache") \
     X("SYSROOT", "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/")
 
