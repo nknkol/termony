@@ -11,20 +11,17 @@ PKGS=zlib \
     curl \
     tar \
     bash \
-    hdc \
 	hdc-lite \
 	libzip \
     horpkg \
     zig \
     busybox \
 	bzip2 \
-	binarysigntool \
 	elf-loader \
+	userlandexec \
 	restool \
 	hnpcil \
-	openharmonytoolchains \
-	apk-tools \
-	patchelf
+	openharmonytoolchains 
 else ifeq ($(OHOS_ARCH),x86_64)
 PKGS=zlib \
     openssl \
@@ -38,20 +35,17 @@ PKGS=zlib \
     curl \
     tar \
     bash \
-    hdc \
 	hdc-lite \
 	libzip \
     horpkg \
     zig \
     busybox \
 	bzip2 \
-	binarysigntool \
 	elf-loader \
+	userlandexec \
 	restool \
 	hnpcil \
-	openharmonytoolchains \
-	apk-tools \
-	patchelf
+	openharmonytoolchains 
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1
