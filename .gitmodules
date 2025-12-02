@@ -7,3 +7,6 @@
 [submodule "entry/src/main/cpp/utf8proc"]
 	path = entry/src/main/cpp/utf8proc
 	url = https://github.com/JuliaStrings/utf8proc.git
+[submodule "build-hnp/userlandexec/elf"]
+	path = build-hnp/userlandexec/elf
+	url = https://github.com/nknkol/elf.git

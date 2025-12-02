@@ -7,17 +7,10 @@
  * @brief (内部) 从本地 HAP/HSP 文件安装。
  * 流程: 解析 -> 签名 -> 安装。
  * @param hap_path .hap 文件的路径。
+ * @param provided_pin 针对受保护包的 PIN（可为 NULL）。
  * @return 0 成功, -1 失败。
  */
-int install_local_hap(const char *hap_path);
-
-/**
- * @brief (内部) 从远程仓库安装。
- * 流程: 下载元数据 -> 下载 HNP -> ... (未来的解压、签名、安装)
- * @param package_name 要安装的包名。
- * @return 0 成功, -1 失败。
- */
-int install_from_repository(const char *package_name);
+int install_local_hap(const char *hap_path, const char *provided_pin);
 
 /**
  * @brief (内部) 使用 horpkg 凭证对 HAP 文件进行签名。

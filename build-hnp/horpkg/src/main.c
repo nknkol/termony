@@ -14,15 +14,7 @@ typedef struct {
 
 static const Command commands[] = {
     {"init",    cmd_init,    "Initialize Horpkg"},
-    {"install", cmd_install, "Install a package"},
-    {"remove",  cmd_remove,  "Remove a package"},
-    {"update",  cmd_update,  "Update a package"},
-    {"list",    cmd_list,    "List installed packages"},
-    {"search",  cmd_search,  "Search for packages"},
-    {"info",    cmd_info,    "Show package information"},
-    {"sync",    cmd_sync,    "Sync repository index"},
-    {"clean",   cmd_clean,   "Clean build cache"},
-    {"config",  cmd_config,  "Manage configuration"},
+    {"install", cmd_install, "Install a local HAP/HSP"},
     {"help",    cmd_help,    "Show help message"},
     {"version", cmd_version, "Show version"},
     {NULL, NULL, NULL}
@@ -101,11 +93,8 @@ int main(int argc, char *argv[]) {
     
     // --- MODIFIED HDC CONNECTION CHECK (REQ 1) ---
     
-    // 'help' 和 'version' 是唯一不需要HDC连接的命令
-    int requires_hdc = 1;
-    if (strcmp(command, "help") == 0 || strcmp(command, "version") == 0) {
-        requires_hdc = 0;
-    }
+    // 仅 init / install 需要 HDC
+    int requires_hdc = (strcmp(command, "init") == 0 || strcmp(command, "install") == 0);
 
     if (requires_hdc) {
         // 1. 尝试确保HDC服务正在运行 (根据用户要求)

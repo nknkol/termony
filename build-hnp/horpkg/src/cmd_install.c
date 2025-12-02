@@ -2,32 +2,89 @@
 #include "utils.h"
 #include "config.h"
 #include "logger.h"
-#include "download.h" // [!]
-#include "install.h"  // [!]
-#include "hap_parser.h" // [!]
-#include "signing.h"  // [!]
-#include "auth.h"     // [!]
-#include "shim_installer.h"
-#include "core_hnp_installer.h"
+#include "install.h"
+#include "hap_parser.h"
+#include "signing.h"
+#include "auth.h"
 
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <yyjson.h>
+
+#ifndef HORPKG_RUNTIME_PIN
+#define HORPKG_RUNTIME_PIN "314159"
+#endif
+
+static int uninstall_runtime_bundle_if_installed(const char *bundle_name) {
+    if (!bundle_name || !bundle_name[0]) {
+        return -1;
+    }
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "hdc-lite uninstall %s > /dev/null 2>&1", bundle_name);
+    log_info("Ensuring previous runtime bundle is removed before install...");
+    int status = system(cmd);
+    if (status != 0) {
+        log_warn("Uninstall command returned non-zero. The bundle may not have been installed.");
+        return -1;
+    }
+    log_info("Runtime bundle uninstall step completed.");
+    return 0;
+}
 
 // [!]
 // [!] 这是 `install` 命令的主入口
 // [!]
-int cmd_install(int argc, char *argv[]) {
-    if (argc < 1) {
-        log_error("Package name or local HAP file path required.");
-        printf("Usage: horpkg install <package_name>\n");
-        printf("   or: horpkg install ./path/to/app.hap\n");
-        return 1;
+
+static int ensure_runtime_signing_ready(const char *bundle_name) {
+    user_info_t user = {0};
+    config_apply_auth_to_user(&user);
+    if (user.access_token[0] == '\0' || user.jwt_token[0] == '\0') {
+        log_error("Runtime install requires valid authentication. Please run 'horpkg init'.");
+        return -1;
     }
 
-    const char *package_arg = argv[0];
+    cert_info_t cert = {0};
+    if (g_config.cert_id[0] == '\0') {
+        log_error("Missing certificate ID for runtime. Please run 'horpkg init'.");
+        return -1;
+    }
+    strncpy(cert.id, g_config.cert_id, sizeof(cert.id) - 1);
+
+    char *keystore_path = get_signature_path("horpkg.p12");
+    char *cert_path = get_signature_path("horpkg.cer");
+    int missing = (access(keystore_path, F_OK) != 0 || access(cert_path, F_OK) != 0);
+    free(keystore_path);
+    free(cert_path);
+    if (missing) {
+        log_error("Missing signing materials (horpkg.p12 / horpkg.cer). Please run 'horpkg init'.");
+        return -1;
+    }
+
+    char provision_path[512] = {0};
+    if (signing_ensure_provision_for_bundle(&user, bundle_name, &cert, provision_path, sizeof(provision_path)) != 0) {
+        log_error("Failed to ensure provision profile for runtime package.");
+        return -1;
+    }
+
+    log_info("Runtime signing profile ready: %s", provision_path);
+    return 0;
+}
+
+int cmd_install(int argc, char *argv[]) {
+    const char *provided_pin = NULL;
+    const char *package_arg = NULL;
+
+    if (argc >= 3 && strcmp(argv[0], "pin") == 0) {
+        provided_pin = argv[1];
+        package_arg = argv[2];
+    } else if (argc >= 1) {
+        package_arg = argv[0];
+    } else {
+        log_error("Local HAP/HSP file path required.");
+        printf("Usage: horpkg install [pin <PIN>] ./path/to/app.hap\n");
+        return 1;
+    }
 
     // --- 检查初始化 (所有安装都需要) ---
     if (!is_initialized()) {
@@ -40,127 +97,18 @@ int cmd_install(int argc, char *argv[]) {
         return 1;
     }
 
-    // 检查是否为本地安装
-    // (如果参数以 ./, ../, / 开头, 或以 .hap / .hsp 结尾, 则视为本地文件)
-    if (strncmp(package_arg, "./", 2) == 0 ||
-        strncmp(package_arg, "../", 3) == 0 ||
-        strncmp(package_arg, "/", 1) == 0 ||
-        (strlen(package_arg) > 4 && strcmp(package_arg + strlen(package_arg) - 4, ".hap") == 0) ||
-        (strlen(package_arg) > 4 && strcmp(package_arg + strlen(package_arg) - 4, ".hsp") == 0)) 
-    {
-        
-        print_info_fmt("Starting local file installation for: %s", package_arg);
-        return install_local_hap(package_arg);
-        
-    } else {
-        
-        print_info_fmt("Starting repository installation for: %s", package_arg);
-        return install_from_repository(package_arg);
-    }
-}
-
-// [!]
-// [!] (从旧的 cmd_install 移动而来) 仓库安装逻辑
-// [!]
-int install_from_repository(const char *package_name) {
-
-    printf("\n%s📦 Installing package:%s %s%s%s\n\n",
-           COLOR_BLUE, COLOR_RESET, COLOR_BOLD, package_name, COLOR_RESET);
-
-    // --- (重构: 从 g_config 读取镜像) ---
-    log_info("Reading repository configuration...");
-    if (g_config.primary_mirror.url[0] == '\0') {
-        log_error("Mirror URL not configured. Please run 'horpkg init'.");
-        return 1;
-    }
-    
-    const char *mirror_url = g_config.primary_mirror.url;
-    log_info("Using mirror:");
-    printf("    %s\n\n", mirror_url);
-    
-    // --- ↓↓↓↓↓↓ 核心修改区域 (开始) ↓↓↓↓↓↓ ---
-
-    // 3. 准备应用专属的下载目录
-    char *tmp_dir = get_config_path("tmp");
-    if (!tmp_dir) { return 1; }
-    create_dir_if_not_exists(tmp_dir);
-
-    char *cache_dir = get_config_path("cache");
-    if (!cache_dir) { free(tmp_dir); return 1; }
-    create_dir_if_not_exists(cache_dir);
-
-    // 4. 下载包元数据 (到 ~/.horpkg/tmp/)
-    char package_json_url[512];
-    char package_json_temp_path[256];
-    snprintf(package_json_url, sizeof(package_json_url), "%s/packages/%s.json", mirror_url, package_name);
-    snprintf(package_json_temp_path, sizeof(package_json_temp_path), "%s/%s.json", tmp_dir, package_name);
-    free(tmp_dir); // 释放内存
-
-    log_info("Fetching package metadata...");
-    if (download_file(package_json_url, package_json_temp_path) != 0) {
-        log_error("Failed to download package metadata.");
-        free(cache_dir);
+    // 仅支持本地安装，参数必须指向本地文件
+    if (strncmp(package_arg, "./", 2) != 0 &&
+        strncmp(package_arg, "../", 3) != 0 &&
+        strncmp(package_arg, "/", 1) != 0 &&
+        !(strlen(package_arg) > 4 && (!strcmp(package_arg + strlen(package_arg) - 4, ".hap") ||
+                                      !strcmp(package_arg + strlen(package_arg) - 4, ".hsp")))) {
+        print_error("Only local HAP/HSP files are supported. Please provide a file path.");
         return 1;
     }
 
-    // 5. 解析包元数据获取下载地址
-    yyjson_read_flag flg = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
-    yyjson_doc *pkg_doc = yyjson_read_file(package_json_temp_path, flg, NULL, NULL);
-    unlink(package_json_temp_path); // 删除临时元数据文件
-    if (!pkg_doc) {
-        log_error("Failed to parse package metadata.");
-        free(cache_dir);
-        return 1;
-    }
-    
-    yyjson_val *pkg_root = yyjson_doc_get_root(pkg_doc);
-    const char *version_str = yyjson_get_str(yyjson_obj_get(pkg_root, "version"));
-    char package_version[64] = "0.0.0";
-    if (version_str && version_str[0]) {
-        snprintf(package_version, sizeof(package_version), "%s", version_str);
-    }
-    yyjson_val *binaries = yyjson_obj_get(pkg_root, "binaries");
-    yyjson_val *arch_bin = yyjson_obj_get(binaries, "arm64-v8a"); // 硬编码架构
-    yyjson_val *hnp_info = yyjson_obj_get(arch_bin, "public_hnp");
-    const char *hnp_url = yyjson_get_str(yyjson_obj_get(hnp_info, "url"));
-    const char *hnp_sha256 = yyjson_get_str(yyjson_obj_get(hnp_info, "sha256"));
-    
-    // 6. 确定最终下载路径 (到 ~/.horpkg/cache/)
-    char out_filename[256];
-    snprintf(out_filename, sizeof(out_filename), "%s/%s.hnp", cache_dir, package_name);
-    free(cache_dir); // 释放内存
-
-    // --- ↑↑↑↑↑↑ 核心修改区域 (结束) ↑↑↑↑↑↑ ---
-    
-    // 7. 执行下载
-    log_info("Downloading package...");
-    if (download_file(hnp_url, out_filename) != 0) {
-        log_error("Download failed.");
-        yyjson_doc_free(pkg_doc);
-        return 1;
-    }
-    log_info("Download complete.");
-
-    // 8. 后续步骤
-    log_info("Verifying SHA256...");
-    // TODO: 实现SHA256校验逻辑
-    log_info("Checksum verified");
-
-    if (shim_install_from_hnp(package_name, out_filename) != 0) {
-        yyjson_doc_free(pkg_doc);
-        return 1;
-    }
-
-    if (core_install_hnp(package_name, package_version, out_filename, hnp_url, hnp_sha256) != 0) {
-        yyjson_doc_free(pkg_doc);
-        return 1;
-    }
-
-    printf("\n%s🎉 Runtime and core assets updated for %s!%s\n",
-           COLOR_GREEN, package_name, COLOR_RESET);
-    
-    yyjson_doc_free(pkg_doc);
-    return 0;
+    print_info_fmt("Starting local file installation for: %s", package_arg);
+    return install_local_hap(package_arg, provided_pin);
 }
 
 
@@ -288,7 +236,7 @@ int sign_hap(const char *unsigned_hap_path, const char *bundle_name, const char 
 // [!]
 // [!] 本地安装流程
 // [!]
-int install_local_hap(const char *hap_path) {
+int install_local_hap(const char *hap_path, const char *provided_pin) {
     
     // 1. 检查文件是否存在
     if (access(hap_path, F_OK) != 0) {
@@ -304,6 +252,26 @@ int install_local_hap(const char *hap_path) {
         return -1;
     }
     print_success_fmt("Found bundleName: %s", bundle_name);
+
+    // 保留包名: org.horpkg.runtime 仅检查签名配置/HDC（HDC 在 main 已校验）
+    if (strcmp(bundle_name, "org.horpkg.runtime") == 0) {
+        const char *PIN_CODE = HORPKG_RUNTIME_PIN; // 编译时固定 PIN (可由宏覆盖)
+        if (!provided_pin) {
+            print_error("Runtime package install requires PIN. Usage: horpkg install pin <PIN> <hap_path>");
+            return -1;
+        }
+        if (strcmp(provided_pin, PIN_CODE) != 0) {
+            log_error("Invalid PIN for runtime package.");
+            return -1;
+        }
+        if (ensure_runtime_signing_ready(bundle_name) != 0) {
+            return -1;
+        }
+        if (uninstall_runtime_bundle_if_installed(bundle_name) != 0) {
+            log_error("Failed to uninstall existing runtime bundle. Aborting install.");
+            return -1;
+        }
+    }
 
     // 3. 对 HAP 进行签名
     log_info("Step 2/3: Signing HAP...");

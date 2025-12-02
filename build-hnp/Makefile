@@ -45,7 +45,7 @@ PKGS=zlib \
 	userlandexec \
 	restool \
 	hnpcil \
-	openharmonytoolchains 
+	openharmonytoolchains
 else
 	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
 	exit 1

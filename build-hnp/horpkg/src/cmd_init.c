@@ -21,52 +21,6 @@
 // [!] 注意: `cmd_install` 已移至 `cmd_install.c`
 // [!] 移除了 `download_file` 原型 (已在 `download.h` 中)
 
-static int install_runtime_dependency(char *installed_from, size_t installed_from_size) {
-    char runtime_path[PATH_MAX];
-    if (horpkg_find_resource("org.horpkg.runtime.hap", runtime_path, sizeof(runtime_path)) != 0) {
-        print_error("Unable to locate 'org.horpkg.runtime.hap'. Set HORPKG_RESOURCES_DIR or place the file next to horpkg.");
-        return -1;
-    }
-
-    char bundle_name[256] = "org.horpkg.runtime";
-    if (hap_parser_get_bundle_name(runtime_path, bundle_name, sizeof(bundle_name)) != 0) {
-        log_warn("Failed to parse bundleName from runtime package. Using default '%s'.", bundle_name);
-    }
-
-    char *tmp_dir = get_config_path("tmp");
-    if (!tmp_dir) {
-        return -1;
-    }
-    create_dir_if_not_exists(tmp_dir);
-
-    char signed_path[PATH_MAX];
-    snprintf(signed_path, sizeof(signed_path), "%s/runtime_%ld.signed.hap", tmp_dir, (long)time(NULL));
-
-    print_info_fmt("Signing runtime package '%s' before installation...", bundle_name);
-    if (sign_hap(runtime_path, bundle_name, signed_path) != 0) {
-        free(tmp_dir);
-        unlink(signed_path);
-        return -1;
-    }
-
-    print_info_fmt("Installing runtime package '%s'...", bundle_name);
-    int install_result = hdc_install_hap(signed_path, bundle_name, NULL);
-    unlink(signed_path);
-    free(tmp_dir);
-
-    if (install_result != 0) {
-        print_error_fmt("Runtime package '%s' installation failed.", bundle_name);
-        return -1;
-    }
-
-    if (installed_from && installed_from_size > 0) {
-        strncpy(installed_from, runtime_path, installed_from_size - 1);
-        installed_from[installed_from_size - 1] = '\0';
-    }
-
-    return 0;
-}
-
 /**
  * 核心初始化函数 (包含高级容错逻辑)
  */
@@ -336,33 +290,18 @@ int cmd_init(int argc, char *argv[]) {
     log_info("Step 3: Provision Configuration");
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     
-    // [!] 逻辑重构:
-    // 调用新的可重用函数，只为 `org.horpkg.core` 这一个包创建配置
-    const char *core_bundle_name = "org.horpkg.core";
+    const char *runtime_bundle_name = "org.horpkg.runtime";
     char provision_path[512] = {0};
     int provision_ready = 0;
-    char runtime_source[PATH_MAX] = {0};
+    
+    log_info("Ensuring provision profile for runtime package (%s)...", runtime_bundle_name);
 
-    log_info("Ensuring provision profile for core package (%s)...", core_bundle_name);
-
-    if (signing_ensure_provision_for_bundle(&user, core_bundle_name, &local_cert, provision_path, sizeof(provision_path)) != 0) {
-        print_error_fmt("Failed to ensure provision profile for %s.", core_bundle_name);
-        // 不一定是致命错误，但 init 不算完全成功
+    if (signing_ensure_provision_for_bundle(&user, runtime_bundle_name, &local_cert, provision_path, sizeof(provision_path)) != 0) {
+        print_error_fmt("Failed to ensure provision profile for %s.", runtime_bundle_name);
     } else {
-        print_info_fmt("Core provision profile is ready at: %s", provision_path);
+        print_info_fmt("Runtime provision profile is ready at: %s", provision_path);
         provision_ready = 1;
     }
-
-    // ===== 阶段 6: Runtime 运行环境安装 =====
-    log_info("Step 4: Runtime Environment Setup");
-    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-
-    if (install_runtime_dependency(runtime_source, sizeof(runtime_source)) != 0) {
-        log_error("Runtime package installation failed. Please ensure 'org.horpkg.runtime.hap' is available.");
-        return 1;
-    }
-    print_success_fmt("Runtime environment installed from: %s", runtime_source);
-    print_info("Skipping 'org.horpkg.core.hap' installation (auto-installed with application packages).");
     
     printf("\n%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", COLOR_GREEN, COLOR_RESET);
     printf("%s✅ Horpkg initialization complete!%s\n\n", COLOR_GREEN, COLOR_RESET);
@@ -373,7 +312,7 @@ int cmd_init(int argc, char *argv[]) {
     printf("  Certificate: ~/.horpkg/signature/horpkg.cer\n");
     printf("  CSR:         ~/.horpkg/signature/horpkg.csr\n");
     printf("  Provision:   %s\n", provision_ready ? provision_path : "(unavailable)");
-    printf("  Runtime:     org.horpkg.runtime (source: %s)\n", runtime_source);
+    printf("  Runtime:     org.horpkg.runtime signing assets prepared (manual install)\n");
     printf("\n");
     
     printf("Next steps:\n");

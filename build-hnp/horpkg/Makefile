@@ -2,28 +2,23 @@ include ../utils/Makefrag
 
 REAL_BINARY_NAME = horpkg
 
-SHIM_NAME = horpkg
+EXCLUDE_SRCS := src/core_hnp_installer.c
+SRCS := $(filter-out $(EXCLUDE_SRCS),$(wildcard src/*.c))
+BUILD_ROOT := build$(PREFIX)
+BIN_DIR := $(BUILD_ROOT)/horpkgbin
 
-SHIM_CONFIG_PATH = $(shell pwd)/shim/config.h
+RUNTIME_PIN ?= $(HORPKG_RUNTIME_PIN)
+ifeq ($(strip $(RUNTIME_PIN)),)
+RUNTIME_PIN := 314159
+endif
+CFLAGS += -DHORPKG_RUNTIME_PIN=\"$(RUNTIME_PIN)\"
 
-# LDFLAGS += -lcurl
-# --- 目标 ---
-.PHONY: all clean
+.PHONY: all clean prep
 
-all:
-	rm -rf build
-	
-	mkdir -p build$(PREFIX)/horpkgbin
-	mkdir -p build$(PREFIX)/etc
-	mkdir -p build$(PREFIX)/share/horpkg/resources
-	cp -fv src/cacert.pem build$(PREFIX)/etc/
-	cp -afv resources/. build$(PREFIX)/share/horpkg/resources/
-	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
-		-o build$(PREFIX)/horpkgbin/$(REAL_BINARY_NAME) \
-		src/*.c \
-		-I../sysroot/include \
-		-L../sysroot/lib -lcurl -lyyjson -lzip
-
+all: prep $(BIN_DIR)/$(REAL_BINARY_NAME)
+	@mkdir -p $(BUILD_ROOT)/etc $(BUILD_ROOT)/share/horpkg/resources
+	cp -fv src/cacert.pem $(BUILD_ROOT)/etc/
+	cp -afv resources/. $(BUILD_ROOT)/share/horpkg/resources/
 	mkdir -p ../sysroot
 	@if command -v rsync >/dev/null 2>&1; then \
 		rsync -a --delete build/$(PREFIX)/ ../sysroot > file.lst; \
@@ -32,15 +27,16 @@ all:
 		cp -afv build/$(PREFIX)/. ../sysroot | tee file.lst; \
 	fi
 
-	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
-		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \
-		echo "Please create it and ensure its TARGET_COMMAND_PATH points to:" >&2; \
-		echo "    \"$(PREFIX)/horpkgbin/$(REAL_BINARY_NAME)\"" >&2; \
-		exit 1; \
-	fi
-	
-	$(MAKE) -C ../shim install SHIM_NAME=$(SHIM_NAME) CONFIG_PATH=$(SHIM_CONFIG_PATH) 2>&1 | tee -a file.lst
+prep:
+	rm -rf $(BUILD_ROOT)
 
+$(BIN_DIR)/$(REAL_BINARY_NAME): $(SRCS)
+	mkdir -p $(BIN_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -std=c11 \
+		-o $@ \
+		$(SRCS) \
+		-I../sysroot/include \
+		-L../sysroot/lib -lcurl -lyyjson -lzip
 
 clean:
 	rm -rf build
