@@ -10,3 +10,6 @@
 [submodule "build-hnp/userlandexec/elf"]
 	path = build-hnp/userlandexec/elf
 	url = https://github.com/nknkol/elf.git
+[submodule "build-hnp/userlandexec/dash"]
+	path = build-hnp/userlandexec/dash
+	url = https://git.kernel.org/pub/scm/utils/dash/dash.git
