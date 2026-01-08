@@ -14,7 +14,6 @@ PKGS=zlib \
 	hdc-lite \
 	libzip \
     horpkg \
-    zig \
     busybox \
 	bzip2 \
 	elf-loader \
@@ -38,7 +37,6 @@ PKGS=zlib \
 	hdc-lite \
 	libzip \
     horpkg \
-    zig \
     busybox \
 	bzip2 \
 	elf-loader \

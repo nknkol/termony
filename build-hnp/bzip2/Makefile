@@ -16,6 +16,7 @@ C_SRCS_NAMES = \
     decompress.c \
     huffman.c \
     randtable.c
+SRC_FILES = $(addprefix $(BZIP2_SRC_DIR)/, $(C_SRCS_NAMES))
 OBJS = $(addprefix build/obj/, $(C_SRCS_NAMES:.c=.o))
 TARGET_LIB = build/libbz2.a
 all: $(TARGET_LIB) install
@@ -33,7 +34,10 @@ $(SETUP_STAMP): download/$(SOURCE_FILE)
 build/obj:
 	mkdir -p $@
 	
-build/obj/%.o: %.c $(SETUP_STAMP) | build/obj
+$(BZIP2_SRC_DIR)/%.c: $(SETUP_STAMP)
+	@true
+
+build/obj/%.o: $(BZIP2_SRC_DIR)/%.c | build/obj
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(BZIP2_SRC_DIR) -c $< -o $@
 
@@ -55,4 +59,4 @@ download/$(SOURCE_FILE):
 
 .PHONY: all install
 
-.SECONDARY: $(OBJS)
+.SECONDARY: $(OBJS) $(SRC_FILES)
