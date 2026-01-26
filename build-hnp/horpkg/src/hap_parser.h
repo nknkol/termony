@@ -16,4 +16,14 @@
  */
 int hap_parser_get_bundle_name(const char *hap_path, char *bundle_name_out, size_t bundle_name_size);
 
+/**
+ * @brief Extracts requested permissions from HAP.
+ * 
+ * @param hap_path Path to HAP file.
+ * @param out_perms Pointer to array of strings (output). Caller must free array and strings.
+ * @param out_count Pointer to integer for count (output).
+ * @return 0 on success (even if 0 perms), -1 on error.
+ */
+int hap_parser_get_permissions(const char *hap_path, char ***out_perms, int *out_count);
+
 #endif // HORPKG_HAP_PARSER_H

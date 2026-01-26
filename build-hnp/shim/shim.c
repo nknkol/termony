@@ -17,6 +17,14 @@
 // 包含你的标准化头文件
 #include "config.h"
 
+#ifndef CUSTOM_LIB_PATH
+#define CUSTOM_LIB_PATH NULL
+#endif
+
+#ifndef LIB_PATH_ENV_VAR
+#define LIB_PATH_ENV_VAR NULL
+#endif
+
 /*
  * -----------------------------------------------------------------
  * X-Macro 魔法开始

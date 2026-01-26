@@ -137,3 +137,106 @@ int hap_parser_get_bundle_name(const char *hap_path, char *bundle_name_out, size
 
     return result;
 }
+
+// 辅助：从 JSON 对象数组中提取权限名称
+static void extract_perms_from_array(yyjson_val *arr, char ***out_perms, int *out_count) {
+    size_t idx, max;
+    yyjson_val *item;
+    
+    // 第一次遍历：计算数量
+    int count = 0;
+    yyjson_arr_foreach(arr, idx, max, item) {
+        if (yyjson_get_str(yyjson_obj_get(item, "name"))) {
+            count++;
+        }
+    }
+    
+    if (count == 0) return;
+
+    // 分配/扩展数组
+    // 注意：如果是首次分配，*out_perms 应为 NULL
+    char **new_list = realloc(*out_perms, (*out_count + count) * sizeof(char*));
+    if (!new_list) return; // 内存错误忽略
+    *out_perms = new_list;
+
+    // 第二次遍历：复制字符串
+    yyjson_arr_foreach(arr, idx, max, item) {
+        const char *name = yyjson_get_str(yyjson_obj_get(item, "name"));
+        if (name) {
+            (*out_perms)[*out_count] = strdup(name);
+            (*out_count)++;
+        }
+    }
+}
+
+int hap_parser_get_permissions(const char *hap_path, char ***out_perms, int *out_count) {
+    int err = 0;
+    zip_t *za = zip_open(hap_path, 0, &err);
+    if (!za) return -1;
+
+    *out_perms = NULL;
+    *out_count = 0;
+
+    // 检查 module.json (Stage 模型)
+    struct zip_stat sb;
+    zip_stat_init(&sb);
+    if (zip_stat(za, "module.json", 0, &sb) == 0) {
+        zip_file_t *zf = zip_fopen(za, "module.json", 0);
+        if (zf) {
+            char *buffer = malloc(sb.size + 1);
+            if (buffer) {
+                if (zip_fread(zf, buffer, sb.size) == (zip_int64_t)sb.size) {
+                    buffer[sb.size] = '\0';
+                    yyjson_doc *doc = yyjson_read(buffer, sb.size, 0);
+                    if (doc) {
+                        yyjson_val *root = yyjson_doc_get_root(doc);
+                        yyjson_val *module = yyjson_obj_get(root, "module");
+                        if (module) {
+                            // Stage model uses "requestPermissions"
+                            yyjson_val *perms = yyjson_obj_get(module, "requestPermissions");
+                            if (yyjson_is_arr(perms)) {
+                                extract_perms_from_array(perms, out_perms, out_count);
+                            }
+                        }
+                        yyjson_doc_free(doc);
+                    }
+                }
+                free(buffer);
+            }
+            zip_fclose(zf);
+        }
+    }
+
+    // 如果没找到或者想补充 (通常只有一个生效，但为了兼容性检查 config.json)
+    // 只有当 module.json 没找到权限时才去检查 config.json，或者两者都检查合并？
+    // 通常一个 HAP 只有一个模式。我们为了保险，如果 module.json 没找到，再看 config.json
+    if (*out_count == 0 && zip_stat(za, "config.json", 0, &sb) == 0) {
+        zip_file_t *zf = zip_fopen(za, "config.json", 0);
+        if (zf) {
+            char *buffer = malloc(sb.size + 1);
+            if (buffer) {
+                if (zip_fread(zf, buffer, sb.size) == (zip_int64_t)sb.size) {
+                    buffer[sb.size] = '\0';
+                    yyjson_doc *doc = yyjson_read(buffer, sb.size, 0);
+                    if (doc) {
+                        yyjson_val *root = yyjson_doc_get_root(doc);
+                        yyjson_val *module = yyjson_obj_get(root, "module");
+                        if (module) {
+                            // FA model uses "reqPermissions"
+                            yyjson_val *perms = yyjson_obj_get(module, "reqPermissions");
+                            if (yyjson_is_arr(perms)) {
+                                extract_perms_from_array(perms, out_perms, out_count);
+                            }
+                        }
+                        yyjson_doc_free(doc);
+                    }
+                }
+                free(buffer);
+            }
+            zip_fclose(zf);
+        }
+    }
+
+    zip_close(za);
+    return 0;
+}

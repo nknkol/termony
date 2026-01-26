@@ -13,12 +13,19 @@ RUNTIME_PIN := 314159
 endif
 CFLAGS += -DHORPKG_RUNTIME_PIN=\"$(RUNTIME_PIN)\"
 
+SHIM_NAME := horpkg
+SHIM_CONFIG_PATH := $(shell pwd)/shim/config.h
+
 .PHONY: all clean prep
 
 all: prep $(BIN_DIR)/$(REAL_BINARY_NAME)
 	@mkdir -p $(BUILD_ROOT)/etc $(BUILD_ROOT)/share/horpkg/resources
 	cp -fv src/cacert.pem $(BUILD_ROOT)/etc/
 	cp -afv resources/. $(BUILD_ROOT)/share/horpkg/resources/
+	
+	@echo "==> [HORPKG] Building Shim..."
+	$(MAKE) -C ../shim install SHIM_NAME=$(SHIM_NAME) CONFIG_PATH=$(SHIM_CONFIG_PATH)
+
 	mkdir -p ../sysroot
 	@if command -v rsync >/dev/null 2>&1; then \
 		rsync -a --delete build/$(PREFIX)/ ../sysroot > file.lst; \

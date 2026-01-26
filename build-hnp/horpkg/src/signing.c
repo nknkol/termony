@@ -484,7 +484,7 @@ int signing_get_device_list(const user_info_t *user, char ***device_ids_out, cha
 // 创建 Provision 配置
 int signing_create_provision(const user_info_t *user, const cert_info_t *cert, 
                             const char **device_ids, int device_count, 
-                            const char *bundle_name, provision_info_t *provision) {
+                            const char *bundle_name, char **perms, int perm_count, provision_info_t *provision) {
     char url[256];
     snprintf(url, sizeof(url), 
              "%s/api/cps/provision-manage/v1/ide/test/provision/add", 
@@ -509,17 +509,33 @@ int signing_create_provision(const user_info_t *user, const cert_info_t *cert,
     }
     strcat(device_list_json, "]");
     
+    // 构建权限列表 JSON
+    // 注意：需要足够大的缓冲区，每个权限名约 50 字节，如果有 10 个权限，大约 500 字节
+    char acl_list_json[4096] = "[]";
+    if (perms && perm_count > 0) {
+        strcpy(acl_list_json, "[");
+        for (int i = 0; i < perm_count; i++) {
+            char temp[128];
+            snprintf(temp, sizeof(temp), "%s\"%s\"", i > 0 ? "," : "", perms[i]);
+            // 简单检查防止溢出
+            if (strlen(acl_list_json) + strlen(temp) < sizeof(acl_list_json) - 1) {
+                strcat(acl_list_json, temp);
+            }
+        }
+        strcat(acl_list_json, "]");
+    }
+
     // 构建完整的 JSON
-    char post_data[4096];
+    char post_data[8192]; // 增加缓冲区大小
     snprintf(post_data, sizeof(post_data),
              "{"
              "\"provisionName\":\"%s\","
-             "\"aclPermissionList\":[],"
+             "\"aclPermissionList\":%s," // 插入 acl_list_json
              "\"deviceList\":%s,"
              "\"certList\":[\"%s\"],"
              "\"packageName\":\"%s\""
              "}",
-             provision_name, device_list_json, cert->id, bundle_name);
+             provision_name, acl_list_json, device_list_json, cert->id, bundle_name);
     
     http_response_t *resp = http_post_authed(url, user, post_data, "application/json");
     
@@ -566,7 +582,7 @@ int signing_download_provision(const user_info_t *user, const char *provision_ob
 }
 
 // [新] 确保 Provision 文件存在
-int signing_ensure_provision_for_bundle(const user_info_t *user, const char *bundle_name, const cert_info_t *cert, char *profile_path_out, size_t profile_path_size) {
+int signing_ensure_provision_for_bundle(const user_info_t *user, const char *bundle_name, const cert_info_t *cert, char **perms, int perm_count, char *profile_path_out, size_t profile_path_size) {
     
     char profile_filename[256];
     snprintf(profile_filename, sizeof(profile_filename), "%s.p7b", bundle_name);
@@ -609,7 +625,7 @@ int signing_ensure_provision_for_bundle(const user_info_t *user, const char *bun
 
     // 3. 创建 Provision (API 5.1)
     provision_info_t provision = {0};
-    if (signing_create_provision(user, cert, (const char**)device_ids, device_count, bundle_name, &provision) != 0) {
+    if (signing_create_provision(user, cert, (const char**)device_ids, device_count, bundle_name, perms, perm_count, &provision) != 0) {
         print_error_fmt("Failed to create provision profile for '%s' (API 5.1).", bundle_name);
         // (清理)
         for (int i = 0; i < device_count; i++) { free(device_ids[i]); free(device_names[i]); }

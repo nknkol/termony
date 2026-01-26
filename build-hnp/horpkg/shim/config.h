@@ -31,7 +31,7 @@
  * [可选] 自定义环境变量列表 (X-Macro 模式)
  */
 #define SHIM_ENV_VARS \
-    X("TMUX_TMPDIR", "/data/storage/el2/horpkg-base/cache") \
+    X("TMUX_TMPDIR", "/data/storage/el2/base/cache") \
     X("SYSROOT", "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/")
     /* END_SHIM_ENV_VARS */
 

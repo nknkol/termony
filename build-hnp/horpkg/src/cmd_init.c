@@ -296,7 +296,7 @@ int cmd_init(int argc, char *argv[]) {
     
     log_info("Ensuring provision profile for runtime package (%s)...", runtime_bundle_name);
 
-    if (signing_ensure_provision_for_bundle(&user, runtime_bundle_name, &local_cert, provision_path, sizeof(provision_path)) != 0) {
+    if (signing_ensure_provision_for_bundle(&user, runtime_bundle_name, &local_cert, NULL, 0, provision_path, sizeof(provision_path)) != 0) {
         print_error_fmt("Failed to ensure provision profile for %s.", runtime_bundle_name);
     } else {
         print_info_fmt("Runtime provision profile is ready at: %s", provision_path);
