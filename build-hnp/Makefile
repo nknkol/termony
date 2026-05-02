@@ -1,54 +1,28 @@
 ifeq ($(OHOS_ARCH),aarch64)
-PKGS=zlib \
+PKGS=elf-loader \
+     userlandexec \
+    openharmonytoolchains \
+    mutagen \
+    opencode \
+    codex \
+    crush \
+    ttyd \
+    ripgrep \
     openssl \
-    ncurses \
-    libusb \
     lz4 \
-    xz \
-    c-ares \
-    yyjson \
-    readline \
-    curl \
-    tar \
-    bash \
-	hdc-lite \
-	libzip \
-    horpkg \
-    busybox \
-	bzip2 \
-	elf-loader \
-	userlandexec \
-	restool \
-	hnpcil \
-	openharmonytoolchains \
-	nodejs
+    libgcc \
+    hdc-lite
 else ifeq ($(OHOS_ARCH),x86_64)
-PKGS=zlib \
-    openssl \
-    ncurses \
-    libusb \
-    lz4 \
-    xz \
-    c-ares \
-    yyjson \
-    readline \
-    curl \
-    tar \
-    bash \
-	hdc-lite \
-	libzip \
-    horpkg \
-    busybox \
-	bzip2 \
-	elf-loader \
-	userlandexec \
-	restool \
-	hnpcil \
-	openharmonytoolchains \
-	nodejs
+PKGS=elf-loader \
+    userlandexec \
+    restool \
+    openharmonytoolchains \
+    mutagen \
+    opencode \
+    libgcc
 else
-	echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
-	exit 1
+		echo "Unsupported OHOS_ARCH=$(OHOS_ARCH)"
+		exit 1
 endif
 
 STAMP=$(patsubst %,%/.stamp,$(PKGS))
@@ -81,14 +55,21 @@ horpkg-base.hnp: $(STAMP) utils/pbcopy utils/pbpaste utils/empty.a Makefile hnp.
 	mkdir -p sysroot/bin
 	cp utils/pbcopy sysroot/bin
 	cp utils/pbpaste sysroot/bin
+	# cleanup optional shell/helper commands from dependency package
+	rm -f sysroot/bin/bashbug
+	rm -f sysroot/bin/captoinfo sysroot/bin/clear sysroot/bin/infocmp
+	rm -f sysroot/bin/infotocap sysroot/bin/reset sysroot/bin/tabs
+	rm -f sysroot/bin/tic sysroot/bin/toe sysroot/bin/tput sysroot/bin/tset
+	rm -f sysroot/bin/ncurses*-config sysroot/bin/*curses*-config
 	# create hnp manually
 	# $(OHOS_SDK_HOME)/toolchains/hnpcli pack -i sysroot -n base -v 1.0
 	cp hnp.json sysroot
 	rm -f horpkg-base.hnp
 	zip -r horpkg-base.hnp sysroot
 
+# 子仓库由手动维护，不在构建流程中自动初始化
 %/.stamp: %/Makefile
-	make -C $(patsubst %/.stamp,%,$@)
+	$(MAKE) -C $(patsubst %/.stamp,%,$@)
 	touch $@
 
 rebuild-%:

@@ -84,8 +84,8 @@ http_response_t* http_get_with_custom_headers(const char *url, struct curl_slist
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Dart/3.7 (dart:io)");
-    const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
-    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+    // const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+    // curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
@@ -148,8 +148,8 @@ http_response_t* http_get_authed(const char *url, const struct user_info_s *user
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
 
-    const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
-    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+    // const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+    // curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
@@ -220,8 +220,8 @@ http_response_t* http_delete_authed(const char *url, const struct user_info_s *u
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
     
     // (设置 CA 路径)
-    const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
-    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+    // const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+    // curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
@@ -285,8 +285,8 @@ http_response_t* http_post_authed(const char *url, const struct user_info_s *use
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)response);
     
-    const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
-    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
+    // const char* ca_path = "/data/service/hnp/horpkg-base.org/horpkg-base_1.0/etc/cacert.pem";
+    // curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);

@@ -19,9 +19,8 @@ SHIM_CONFIG_PATH := $(shell pwd)/shim/config.h
 .PHONY: all clean prep
 
 all: prep $(BIN_DIR)/$(REAL_BINARY_NAME)
-	@mkdir -p $(BUILD_ROOT)/etc $(BUILD_ROOT)/share/horpkg/resources
+	@mkdir -p $(BUILD_ROOT)/etc
 	cp -fv src/cacert.pem $(BUILD_ROOT)/etc/
-	cp -afv resources/. $(BUILD_ROOT)/share/horpkg/resources/
 	
 	@echo "==> [HORPKG] Building Shim..."
 	$(MAKE) -C ../shim install SHIM_NAME=$(SHIM_NAME) CONFIG_PATH=$(SHIM_CONFIG_PATH)

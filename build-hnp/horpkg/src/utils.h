@@ -37,6 +37,7 @@ int horpkg_find_resource(const char *filename, char *out_path, size_t out_size);
 void hdc_start_service(void);
 int hdc_is_connected(void);
 int hdc_connect_port(const char *port);
+void hdc_setup_connect(void);
 char* hdc_get_uuid(void);
 int store_uuid(const char* uuid);
 int is_initialized(void);

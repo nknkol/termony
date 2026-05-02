@@ -385,6 +385,59 @@ int hdc_connect_port(const char *port) {
 }
 
 /**
+ * @brief 交互式设置HDC连接模式 (本地/IP)
+ */
+void hdc_setup_connect(void) {
+    char input[256];
+    printf("Select HDC Connection Mode:\n");
+    printf("  [L] Local Mode (USB) - Default\n");
+    printf("  [I] Input IP Address\n");
+    printf("Enter choice [L/i]: ");
+    
+    if (fgets(input, sizeof(input), stdin) == NULL) {
+        return; // Default to local
+    }
+    
+    // Trim newline
+    input[strcspn(input, "\n")] = 0;
+    
+    if (input[0] == 'i' || input[0] == 'I') {
+        printf("Enter Device IP (e.g., 192.168.1.100): ");
+        if (fgets(input, sizeof(input), stdin) != NULL) {
+             input[strcspn(input, "\n")] = 0;
+             if (strlen(input) > 0) {
+                 char cmd[512];
+                 // If no port specified, prompt for it
+                 if (strchr(input, ':') == NULL) {
+                     char port_buf[64];
+                     printf("Enter Port (default 8710): ");
+                     if (fgets(port_buf, sizeof(port_buf), stdin) != NULL) {
+                         port_buf[strcspn(port_buf, "\n")] = 0;
+                         if (strlen(port_buf) > 0) {
+                            snprintf(cmd, sizeof(cmd), "hdc-lite tconn %s:%s", input, port_buf);
+                         } else {
+                            snprintf(cmd, sizeof(cmd), "hdc-lite tconn %s:8710", input);
+                         }
+                     } else {
+                         snprintf(cmd, sizeof(cmd), "hdc-lite tconn %s:8710", input);
+                     }
+                 } else {
+                     snprintf(cmd, sizeof(cmd), "hdc-lite tconn %s", input);
+                 }
+                 log_info("Connecting to %s...", input); // 'input' is just IP or IP:Port from first prompt
+                 system(cmd);
+                 // Give it a moment to connect
+                 sleep(1);
+             }
+        }
+    } else {
+        // Local mode selected (default)
+        // Optionally ensure USB mode, but typically default behavior is fine.
+        log_info("Using Local Mode (default).");
+    }
+}
+
+/**
  * @brief 通过HDC获取设备UUID (Functional)
  * @return 成功则返回UUID字符串 (需要free), 失败返回NULL
  */

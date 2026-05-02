@@ -35,6 +35,7 @@ typedef struct {
     // (未来扩展)
     char default_mode[32];
     int parallel_jobs;
+    int manual_auth; // Manual authentication mode (no auto-browser)
 
 } horpkg_config_t;
 

@@ -89,7 +89,35 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    const char *command = argv[1];
+    // Parse global flags before command
+    int arg_idx = 1;
+    while (arg_idx < argc && argv[arg_idx][0] == '-') {
+        if (strcmp(argv[arg_idx], "--manual-auth") == 0 || strcmp(argv[arg_idx], "--manual-login") == 0) {
+            g_config.manual_auth = 1;
+        } else {
+            // Treat unknown flag as potentially part of command or error
+            // For now, we assume strict "horpkg [global-flags] command" structure
+            // But to be friendly, if we hit an unknown flag, we might stop parsing global flags
+            // However, sticking to simple logic:
+            if (strcmp(argv[arg_idx], "--help") == 0 || strcmp(argv[arg_idx], "-h") == 0) {
+                cmd_help(0, NULL);
+                return 0;
+            } else if (strcmp(argv[arg_idx], "--version") == 0 || strcmp(argv[arg_idx], "-v") == 0) {
+                cmd_version(0, NULL);
+                return 0;
+            }
+             // Unknown flag, stop global parsing, let command handle it (or fail)
+             break;
+        }
+        arg_idx++;
+    }
+
+    if (arg_idx >= argc) {
+        cmd_help(0, NULL);
+        return 1;
+    }
+    
+    const char *command = argv[arg_idx];
     
     // --- MODIFIED HDC CONNECTION CHECK (REQ 1) ---
     
@@ -115,28 +143,14 @@ int main(int argc, char *argv[]) {
             if (!connected) {
                 print_error("HDC device not connected.");
                 print_prompt("Please connect your HarmonyOS device via HDC.");
-                print_prompt("Check connection: 'hdc list targets'");
-                print_prompt("Enter <port> to connect (e.g., 38201) or press [Enter] to quit:");
                 
-                char port_input[32];
-                if (fgets(port_input, sizeof(port_input), stdin) != NULL) {
-                    port_input[strcspn(port_input, "\n")] = 0;
-                    
-                    if (strlen(port_input) > 0) {
-                        connected = attempt_connect_with_port(port_input, 0);
-                        if (!connected) {
-                            print_error("Connection attempt failed.");
-                            print_prompt("Ensure the port is correct and hdc-lite is working.");
-                            return 1;
-                        }
-                        persist_hdc_port_if_needed(port_input);
-                    } else {
-                        print_info("Connection cancelled by user. Exiting.");
-                        return 1; 
-                    }
-                } else {
-                    print_error("Failed to read user input.");
-                    return 1;
+                // Use the new setup connect function
+                hdc_setup_connect();
+                
+                // Re-check connection
+                if (!hdc_is_connected()) {
+                     print_error("Device still not connected. Exiting.");
+                     return 1;
                 }
             }
         }
@@ -149,12 +163,12 @@ int main(int argc, char *argv[]) {
     for (int i = 0; commands[i].name != NULL; i++) {
         if (strcmp(command, commands[i].name) == 0) {
             // main.c中的HDC检查通过后，才执行命令
-            return commands[i].handler(argc - 2, argv + 2);
+            return commands[i].handler(argc - (arg_idx + 1), argv + arg_idx + 1);
         }
     }
     
     // Unknown command
-    print_error("Unknown command");
+    print_error_fmt("Unknown command: %s", command);
     printf("Run '%shorpkg help%s' for usage.\n", COLOR_CYAN, COLOR_RESET);
     return 1;
 }

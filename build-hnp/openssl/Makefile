@@ -1,7 +1,5 @@
 include ../utils/Makefrag
 
-SHIM_CONFIG_PATH = $(shell pwd)/shim/config.h
-
 all: download/openssl-3.5.0.tar.gz
 	rm -rf temp build
 	mkdir -p temp build/bin
@@ -13,19 +11,13 @@ all: download/openssl-3.5.0.tar.gz
 	mkdir -p ../sysroot
 	$(OHOS_SDK_HOME)/native/llvm/bin/llvm-strip build/$(PREFIX)/lib/*.so
 	rm -f ./build/$(PREFIX)/lib/*.a
+	rm -f ./build/$(PREFIX)/bin/c_rehash
 	mkdir -p ./build/$(PREFIX)/etc/ssl
 	cp -fv openssl.cnf ./build/$(PREFIX)/etc/ssl/
 	cp -rv ./build/$(PREFIX)/. ../sysroot | tee file.lst
+	rm -f ../sysroot/bin/c_rehash
+	rm -f ../sysroot/bin/openssl
 	@cp -fv ./build/$(PREFIX)/bin/openssl ../sysroot/horpkgbin/ | tee file.lst
-	#///////////////
-	@if [ ! -f "$(SHIM_CONFIG_PATH)" ]; then \
-		echo "ERROR: Shim config file not found at $(SHIM_CONFIG_PATH)" >&2; \
-		echo "Please create 'shim/config.h' inside the '$(shell pwd)' directory." >&2; \
-		exit 1; \
-	fi
-	@echo "==> [hapsigntool] Building and installing shim wrapper -> ../sysroot/bin/openssl"
-	$(MAKE) -C ../shim install SHIM_NAME=openssl CONFIG_PATH=$(SHIM_CONFIG_PATH)
-	#///////////////
 
 download/openssl-3.5.0.tar.gz:
 	mkdir -p download

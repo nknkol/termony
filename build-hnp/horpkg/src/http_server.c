@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 #include "http_server.h"
 #include "utils.h"
+#include "config.h" // [!] Added for g_config
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -313,19 +314,29 @@ char* http_server_get_oauth_token(int port, const char *auth_url) {
     snprintf(success_msg, sizeof(success_msg), "Local OAuth server started on port %d", port);
     print_success(success_msg);
     
-    // 打开浏览器
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-             "hdc-lite shell aa start "
-             "-A ohos.want.action.viewData "
-             "-e entity.system.browsable "
-             "-U \"%s\" "
-             "2>&1 >/dev/null",
-             auth_url);
-    
-    print_info("Opening browser on device...");
-    system(cmd);
-    print_success("Browser opened. Please login in the browser.");
+    // 决定是自动打开浏览器还是打印URL
+    if (g_config.manual_auth) {
+        printf("\n%s[MANUAL AUTHENTICATION]%s\n", COLOR_CYAN, COLOR_RESET);
+        printf("Please open the following URL in your browser:\n\n");
+        printf("%s%s%s\n\n", COLOR_BOLD, auth_url, COLOR_RESET);
+        printf("NOTE: You must ensure that port %d is accessible from the browser machine.\n", port);
+        printf("      (e.g., if using SSH, forward the port: ssh -L %d:localhost:%d ...)\n\n", port, port);
+    } else {
+        // 打开浏览器
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd),
+                 "hdc-lite shell aa start "
+                 "-A ohos.want.action.viewData "
+                 "-e entity.system.browsable "
+                 "-U \"%s\" "
+                 "2>&1 >/dev/null",
+                 auth_url);
+        
+        print_info("Opening browser on device...");
+        system(cmd);
+        print_success("Browser opened. Please login in the browser.");
+    }
+
     printf("\n");
     
     // 启动服务器线程
@@ -339,21 +350,68 @@ char* http_server_get_oauth_token(int port, const char *auth_url) {
         return NULL;
     }
     
-    // 显示等待动画
-    printf("%sWaiting for authentication...%s ", COLOR_YELLOW, COLOR_RESET);
+    // 显示等待动画并支持手动输入
+    printf("%sWaiting for authentication...%s\n", COLOR_YELLOW, COLOR_RESET);
+    printf("  1. If using SSH, ensure port forwarding is active: %sssh -L %d:localhost:%d ...%s\n", COLOR_BOLD, port, port, COLOR_RESET);
+    printf("  2. Or, copy the full Redirect URL from your browser (even if it fails to load) and %spaste it here%s:\n\n", COLOR_GREEN, COLOR_RESET);
     fflush(stdout);
     
     const char *spinner = "|/-\\";
     int spinner_idx = 0;
     
+    // 设置 stdin 为非缓冲模式需要在 main 中处理，或者使用 select 轮询
+    fd_set readfds;
+    struct timeval tv;
+    char input_buffer[4096];
+
     while (!g_server_should_stop) {
-        printf("\b%c", spinner[spinner_idx]);
+        // 打印 Spinner
+        printf("\r%c Waiting... (Paste URL here if needed) ", spinner[spinner_idx]);
         fflush(stdout);
         spinner_idx = (spinner_idx + 1) % 4;
-        usleep(100000);  // 100ms
+
+        // 使用 select 检查 stdin 是否有输入
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms timeout (控制 spinner 速度)
+
+        int ret = select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv);
+
+        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+            // 有用户输入
+            if (fgets(input_buffer, sizeof(input_buffer), stdin) != NULL) {
+                // 移除换行符
+                input_buffer[strcspn(input_buffer, "\n")] = 0;
+                
+                // 尝试提取 Token
+                char *manual_token = extract_param(input_buffer, "tempToken");
+                if (!manual_token) manual_token = extract_param(input_buffer, "token");
+                if (!manual_token) manual_token = extract_param(input_buffer, "hwid_account");
+                if (!manual_token) manual_token = extract_param(input_buffer, "access_token");
+
+                // 如果用户直接粘贴的是纯 Token (假设长度足够长且没有 param= 前缀)
+                // 这里做一个简单的启发式判断：如果没找到 key=value，但字符串很长，可能就是 token 本身
+                if (!manual_token && strlen(input_buffer) > 32) {
+                     // 简单判断，避免误操作
+                     manual_token = strdup(input_buffer);
+                }
+
+                if (manual_token) {
+                    printf("\n%s✓ Manual input detected!%s\n", COLOR_GREEN, COLOR_RESET);
+                    g_received_token = manual_token;
+                    g_server_should_stop = 1;
+                    break;
+                } else {
+                    printf("\n%s✗ Invalid input. Please paste the full URL containing 'tempToken='.%s\n", COLOR_RED, COLOR_RESET);
+                }
+            }
+        }
+        // 如果 select 超时 (ret == 0)，循环继续，刷新 spinner
     }
     
-    printf("\b \n");
+    printf("\r \n"); // 清除 spinner 行
     
     // 等待线程结束
     pthread_join(tid, NULL);

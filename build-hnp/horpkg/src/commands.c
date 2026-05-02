@@ -14,7 +14,7 @@ int cmd_help(int argc, char *argv[]) {
 
     printf("%s用法:%s horpkg <command> [options]\n\n", COLOR_BOLD, COLOR_RESET);
     printf("%s可用命令:%s\n", COLOR_BOLD, COLOR_RESET);
-    printf("  %sinit%s                设备初始化，获取并保存设备信息/凭证\n", COLOR_GREEN, COLOR_RESET);
+    printf("  %sinit%s                设备初始化，获取并保存设备信息/凭证 [--manual-login]\n", COLOR_GREEN, COLOR_RESET);
     printf("  %sinstall%s <本地hap>    安装本地 HAP/HSP 到已连接设备（包含签名）\n", COLOR_GREEN, COLOR_RESET);
     printf("  %shelp%s                 显示帮助信息\n", COLOR_GREEN, COLOR_RESET);
     printf("  %sversion%s              显示版本\n", COLOR_GREEN, COLOR_RESET);
